@@ -4,10 +4,10 @@ import { Chess } from 'chess.js';
 import { h, clear, fmtDate, pct } from '../dom.js';
 import * as store from '../storage.js';
 import { getGames } from '../games.js';
-import { createBoard } from '../board.js';
+import { createBoard, legalDests, syncBoard, showArrow } from '../board.js';
 import {
   loadOpenings, correlateGames, buildGamePositionIndex, searchOpenings, popularOpenings,
-  suggestOpenings, epdOf,
+  suggestOpenings, epdOf, findOpeningMistakes,
 } from '../openings.js';
 
 const OS = { username: '', games: [], correlation: null, posIndex: null, mode: 'yours', loaded: false };
@@ -28,6 +28,7 @@ function draw() {
     h('div', { id: 'op-body', class: 'section' }),
   );
   if (OS.mode === 'explore') drawExplore();
+  else if (OS.mode === 'mistakes') drawMistakes();
   else { if (!OS.loaded && OS.username) loadYours(); else drawYours(); }
 }
 
@@ -38,7 +39,7 @@ function controls() {
   return h('div', { class: 'controls' },
     h('div', { class: 'field username' }, h('label', {}, 'Username'), user),
     h('div', { class: 'field' }, h('label', { class: 'tiny' }, ' '), h('button', { class: 'btn', onclick: () => { OS.username = user.value.trim(); OS.loaded = false; draw(); } }, 'Load')),
-    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('explore', 'Explore all'))),
+    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('mistakes', 'Your mistakes'), tab('explore', 'Explore all'))),
   );
 }
 
@@ -213,4 +214,134 @@ function renderCoach(ply) {
   } else if (ply > 0) {
     box.append(h('div', { class: 'hint tiny', style: { marginTop: '8px' } }, OS.posIndex ? 'This exact position hasn\'t come up in your recent games.' : 'Load your games (Your openings tab) to see where this matches your play.'));
   }
+}
+
+// ---- opening-mistake trainer ----
+async function loadCachedAnalyses(games) {
+  const out = [];
+  for (const g of games) {
+    try { const c = await store.cacheGet(g.url, 0); if (c && c.plies) out.push({ url: g.url, plies: c.plies, userColor: c.summary?.userColor || g.userColor, game: g }); } catch {}
+  }
+  return out;
+}
+
+async function drawMistakes() {
+  const body = document.getElementById('op-body');
+  if (!OS.username) { clear(body).append(h('div', { class: 'empty' }, 'Enter your username above first.')); return; }
+  clear(body).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Finding your opening slip-ups…'));
+  let games = [];
+  try { games = await getGames(OS.username, { months: 8, timeClass: 'all', limit: 50 }); } catch {}
+  const analyses = await loadCachedAnalyses(games);
+  if (!analyses.length) { clear(body).append(h('div', { class: 'empty' }, 'Deep-scan some games in the Personal tab first — then I\'ll show exactly where your openings go wrong and how to fix them.')); return; }
+  const lessons = findOpeningMistakes(analyses);
+  clear(body);
+  if (!lessons.length) { body.append(h('div', { class: 'empty' }, 'No clear opening mistakes in your analyzed games — nicely done!')); return; }
+  body.append(
+    h('h2', {}, `Your opening mistakes (${lessons.length})`),
+    h('p', { class: 'hint' }, 'Each is a real moment your opening went wrong. Open it to find the better move and feel the difference.'),
+    h('div', { class: 'game-list section' }, ...lessons.map((L) => h('div', { class: 'game-row', style: { gridTemplateColumns: '1fr auto' }, onclick: () => openLesson(L) },
+      h('div', {}, h('div', { class: 'opp' }, `Move ${L.moveNumber}: ${L.playedSan} `, h('span', { class: 'glyph', style: { color: 'var(--bad)' } }, L.label === 'Blunder' ? '??' : '?')),
+        h('div', { class: 'meta' }, `vs ${L.opponent} · −${L.winLoss}% · ${L.reason}`)),
+      h('button', { class: 'btn small ghost' }, 'Learn')))),
+  );
+}
+
+const ML = { L: null, chess: null, ground: null };
+const PV_WALK = { pv: [], i: 0, base: null, color: 'white' };
+
+function openLesson(L) {
+  clear(host);
+  host.append(h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+    h('button', { class: 'btn ghost small', onclick: () => { OS.mode = 'mistakes'; draw(); } }, '← Back to mistakes'),
+    h('div', { class: 'hint' }, `vs ${L.opponent}`)));
+  const boardEl = h('div', { id: 'lesson-board' });
+  const coach = h('div', { class: 'explain-box', id: 'lesson-coach', style: { minHeight: '150px' } });
+  host.append(h('div', { class: 'trainer-grid section' },
+    h('div', { class: 'trainer-coach' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, '♟ Coach'), coach),
+    h('div', { class: 'board-wrap trainer-board' }, boardEl),
+    h('div', { class: 'trainer-side', id: 'lesson-controls' })));
+  ML.L = L;
+  ML.chess = new Chess(L.fenBefore);
+  ML.ground = createBoard(boardEl, { fen: L.fenBefore, orientation: L.color, turnColor: L.color, coordinates: true, movable: { free: false, color: L.color, dests: legalDests(ML.chess), showDests: true, events: { after: onGuess } } });
+  stageGuess();
+}
+
+function stageGuess() {
+  const L = ML.L;
+  clear(document.getElementById('lesson-coach')).append(
+    h('div', { style: { fontWeight: 700, marginBottom: '6px' } }, `Move ${L.moveNumber}: you played ${L.playedSan}`),
+    h('div', { class: 'why' }, `In your game vs ${L.opponent}, this was ${/^[aeiou]/i.test(L.label) ? 'an' : 'a'} ${L.label.toLowerCase()}. ${L.reason}`),
+    h('div', { class: 'why', style: { marginTop: '8px', fontWeight: 600 } }, 'Your turn — can you find a stronger move?'));
+  clear(document.getElementById('lesson-controls')).append(h('button', { class: 'btn ghost small', onclick: () => revealBest(false) }, 'Show me the better move'));
+}
+
+function onGuess(orig, dest) {
+  const piece = ML.chess.get(orig);
+  const promo = piece && piece.type === 'p' && (dest[1] === '8' || dest[1] === '1') ? 'q' : undefined;
+  const uci = orig + dest + (promo || '');
+  if (uci === ML.L.bestUci || uci === (ML.L.bestUci || '').slice(0, 4)) { revealBest(true); return; }
+  ML.ground.set({ fen: ML.chess.fen(), movable: { color: ML.L.color, dests: legalDests(ML.chess) } });
+  const c = document.getElementById('lesson-coach');
+  let note = c.querySelector('.guess-note');
+  if (!note) { note = h('div', { class: 'why guess-note', style: { marginTop: '6px', color: 'var(--warn)' } }); c.append(note); }
+  note.textContent = 'Not the strongest — try again, or hit "Show me".';
+}
+
+async function revealBest(found) {
+  const L = ML.L;
+  ML.ground.set({ fen: L.fenBefore, movable: { color: undefined, dests: new Map() } });
+  showArrow(ML.ground, L.bestUci, 'green');
+  clear(document.getElementById('lesson-coach')).append(
+    h('div', { style: { fontWeight: 700, marginBottom: '6px' } }, found ? `Yes — ${L.bestSan} is the move! ✓` : `The stronger move was ${L.bestSan}.`),
+    h('div', { class: 'why' }, betterWhy(L)));
+  clear(document.getElementById('lesson-controls')).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Comparing the two lines…'));
+  let r = null;
+  try { const engine = await CTX.ensureEngine(); r = await engine.evaluate(L.fenBefore, { depth: 14, multipv: 1 }); } catch {}
+  renderCompare(L, r);
+}
+
+const fmtEval = (cp) => { const v = cp / 100; return (v >= 0 ? '+' : '') + v.toFixed(1); };
+function userCp(ev, userWhite) {
+  const cp = ev.type === 'mate' ? (ev.value > 0 ? 2000 : -2000) : ev.value;
+  return userWhite ? cp : -cp;
+}
+function betterWhy(L) {
+  const reason = (L.reason || '').toLowerCase();
+  if (reason.includes('queen')) return 'It develops a piece and keeps your queen safe, instead of letting her get chased around and losing time.';
+  if (reason.includes('hang') || reason.includes('drops') || reason.includes('free')) return 'It keeps all your pieces protected — your move let your opponent win material.';
+  if (reason.includes('king') || reason.includes('shelter') || reason.includes('castl')) return 'It keeps your king safe behind its pawns, instead of opening it up to attack.';
+  if (reason.includes('center')) return 'It fights for the center — the most important squares — instead of giving it up.';
+  if (reason.includes('same piece') || reason.includes('development')) return 'It develops a NEW piece instead of falling behind in development.';
+  return 'It keeps your position solid and your pieces working together — exactly what your move gave up.';
+}
+
+function renderCompare(L, r) {
+  const userWhite = L.color === 'white';
+  const playedUser = userCp(L.plies[L.ply - 1].evalWhite, userWhite);
+  const idealUser = r ? (r.mate != null ? (userWhite ? (r.mate > 0 ? 2000 : -2000) : (r.mate > 0 ? -2000 : 2000)) : (userWhite ? r.cp : -r.cp)) : playedUser;
+  const delta = (idealUser - playedUser) / 100;
+  clear(document.getElementById('lesson-controls')).append(
+    h('div', { class: 'card' },
+      h('div', { style: { fontWeight: 700, marginBottom: '6px' } }, 'Your move vs the better move'),
+      h('div', { class: 'why' }, `After ${L.playedSan}, the engine rated your position about `, h('b', { style: { fontFamily: 'var(--mono)', color: 'var(--bad)' } }, fmtEval(playedUser)), `. The better move ${L.bestSan} keeps it around `, h('b', { style: { fontFamily: 'var(--mono)', color: 'var(--good)' } }, fmtEval(idealUser)), '.'),
+      h('div', { class: 'why', style: { marginTop: '6px', color: 'var(--accent-2)' } }, delta >= 0.4 ? `That's about ${delta.toFixed(1)} pawns better — a real difference this early in the game.` : 'Even a small edge in the opening adds up over the game.')),
+    r && r.pv && r.pv.length ? h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: () => startPvWalk(L, r.pv) }, 'Play the better line ▶') : null);
+}
+
+function startPvWalk(L, pv) {
+  PV_WALK.pv = pv.slice(0, 6); PV_WALK.i = 0; PV_WALK.base = L.fenBefore; PV_WALK.color = L.color;
+  showArrow(ML.ground, null);
+  const ctrl = document.getElementById('lesson-controls');
+  clear(ctrl).append(
+    h('div', { class: 'hint tiny', style: { marginBottom: '6px' } }, 'The engine\'s line — step through it to see the plan.'),
+    h('div', { class: 'nav-controls' }, h('button', { onclick: () => pvStep(-1) }, '◀'), h('button', { onclick: () => pvStep(1) }, '▶ next move')),
+    h('button', { class: 'btn ghost small', style: { marginTop: '10px' }, onclick: () => { OS.mode = 'mistakes'; draw(); } }, 'Done — back to mistakes'));
+  pvRender();
+}
+function pvStep(d) { PV_WALK.i = Math.max(0, Math.min(PV_WALK.pv.length, PV_WALK.i + d)); pvRender(); }
+function pvRender() {
+  const c = new Chess(PV_WALK.base);
+  let last = null;
+  for (let k = 0; k < PV_WALK.i; k++) { const u = PV_WALK.pv[k]; const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }); if (m) last = [m.from, m.to]; }
+  ML.ground.set({ fen: c.fen(), lastMove: last, orientation: PV_WALK.color });
 }

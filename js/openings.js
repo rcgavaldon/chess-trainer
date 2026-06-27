@@ -46,6 +46,32 @@ export async function identifyOpening(uciMoves) {
 
 const family = (name) => name.split(':')[0].trim();
 
+// Find each game's worst OPENING-phase mistake (first ~16 plies) by the user — the raw
+// material for the opening-mistake lessons. analyses = [{url, plies, userColor, game}].
+export function findOpeningMistakes(analyses) {
+  const BAD = new Set(['Inaccuracy', 'Miss', 'Mistake', 'Blunder']);
+  const lessons = [];
+  for (const a of analyses) {
+    const col = a.userColor;
+    let worst = null;
+    for (const p of a.plies) {
+      if (p.ply > 16) break;
+      if (p.color !== col || !BAD.has(p.label)) continue;
+      if (!worst || p.winLoss > worst.winLoss) worst = p;
+    }
+    if (worst && worst.winLoss >= 6) {
+      lessons.push({
+        gameUrl: a.url, opponent: a.game?.opponent, color: col,
+        ply: worst.ply, moveNumber: worst.moveNumber, playedSan: worst.san,
+        bestSan: worst.bestSan, bestUci: worst.bestUci, reason: worst.explanation,
+        label: worst.label, winLoss: worst.winLoss, fenBefore: worst.fenBefore, fenAfter: worst.fenAfter,
+        plies: a.plies,
+      });
+    }
+  }
+  return lessons.sort((a, b) => b.winLoss - a.winLoss);
+}
+
 // Aggregate the user's openings from their games (grouped by family), with results.
 export async function correlateGames(games) {
   const map = await prefixMap();
