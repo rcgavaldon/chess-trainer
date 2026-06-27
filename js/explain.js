@@ -173,23 +173,23 @@ export function explainMove(ctx) {
       const oppDefends = cb.isAttacked(ctx.move.to, cb.turn() === 'w' ? 'b' : 'w');
       if (!oppDefends) add(88, 'freecap', `You win the ${NAME[ctx.move.captured]} for free.`);
     }
-    if (matchedBest) add(80, 'best', `The engine's top choice.`);
+    if (matchedBest) add(80, 'best', `Nice — exactly what the engine wanted. It keeps your pieces active and safe.`);
     if (ctx.move.flags && (ctx.move.flags.includes('k') || ctx.move.flags.includes('q')))
       add(45, 'castle', `Castling tucks your king to safety and connects the rooks.`);
   }
 
   if (!reasons.length) {
     const fb = {
-      Brilliant: 'A stunning move — a sound sacrifice the engine confirms.',
-      Great: 'A hard-to-find move that was essentially the only way to stay in the game.',
-      Best: 'The engine\'s top choice — accurate.',
-      Excellent: 'A precise move that keeps your position healthy.',
-      Good: 'A solid, sensible move.',
-      Book: 'A known opening move — still in theory.',
-      Inaccuracy: 'Slightly imprecise — there was a more accurate move.',
-      Miss: 'You were better here and let some of the advantage slip.',
-      Mistake: 'This lets a clear advantage or some material slip.',
-      Blunder: 'A serious error that loses material or the game.',
+      Brilliant: 'Wow — you gave up material on purpose to win something even bigger. Great eye!',
+      Great: 'Awesome — this was the one move that kept you in the game. Hard to find!',
+      Best: 'This is the best move. It keeps your pieces working together and doesn\'t give anything away.',
+      Excellent: 'Really good move — your position stays strong and safe.',
+      Good: 'A solid move that keeps things on track.',
+      Book: 'A normal opening move that lots of players know.',
+      Inaccuracy: 'Not the sharpest choice — there was a slightly better move here.',
+      Miss: 'You were winning here and let a little of your lead slip away.',
+      Mistake: 'This gives your opponent a chance — there was a stronger move.',
+      Blunder: 'Oops — this loses something important. Slow down and look for a safer move.',
     };
     return { type: 'fallback', text: fb[ctx.label] || 'A reasonable move.', all: [] };
   }

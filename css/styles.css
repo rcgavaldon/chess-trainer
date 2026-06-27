@@ -216,6 +216,10 @@ dialog::backdrop { background: rgba(6, 9, 12, .65); backdrop-filter: blur(4px); 
 .settings-form h3 { margin: 0; font-size: 19px; font-weight: 800; }
 .settings-form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; }
 .settings-form menu { display: flex; justify-content: flex-end; gap: 10px; margin: 8px 0 0; padding: 0; }
+.swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+.swatch { width: 32px; height: 32px; border-radius: 9px; border: 2px solid transparent; cursor: pointer; transition: transform .1s; }
+.swatch:hover { transform: scale(1.08); }
+.swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface); }
 
 /* ---- toast / misc ---- */
 .engine-status { position: fixed; bottom: 18px; right: 18px; background: var(--elevated); border: 1px solid var(--line-strong);
@@ -228,3 +232,33 @@ dialog::backdrop { background: rgba(6, 9, 12, .65); backdrop-filter: blur(4px); 
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 8px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--elevated); }
+
+/* ---- opening trainer layout: board left + coach right on desktop, coach on TOP on mobile ---- */
+.trainer-grid { display: grid; gap: 16px; grid-template-columns: 480px 1fr; grid-template-areas: 'board coach' 'board side'; align-items: start; }
+.trainer-board { grid-area: board; } .trainer-coach { grid-area: coach; } .trainer-side { grid-area: side; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 860px) { .trainer-grid { grid-template-columns: 1fr; grid-template-areas: 'coach' 'board' 'side'; } .trainer-board { width: 100%; max-width: 480px; margin: 0 auto; } }
+
+/* ---- mobile ---- */
+@media (max-width: 720px) {
+  .topbar { gap: 8px; padding: 0 10px; height: 54px; }
+  .brand { font-size: 15px; }
+  .brand span:last-child { display: none; } /* show only the knight + 'Chess' shrinks */
+  .tabs { margin-left: 2px; padding: 3px; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tabs::-webkit-scrollbar { height: 0; }
+  .tabs a { padding: 6px 11px; font-size: 13px; white-space: nowrap; }
+  .owner-badge { display: none; }
+  main { padding: 18px 12px 90px; }
+  h1 { font-size: 21px; }
+  .controls { padding: 12px; }
+  .controls .field { flex: 1 1 100%; }
+  .controls .field.username input, .controls .field.tc select { width: 100%; }
+  .controls .field[style*='margin-left'] { margin-left: 0 !important; }
+  table { font-size: 13px; } th, td { padding: 8px 6px; }
+  .stat .v { font-size: 22px; }
+  .accbar { gap: 18px; }
+  .game-row { grid-template-columns: 52px 1fr 70px; gap: 8px; }
+  .game-row > :nth-child(3) { display: none; }
+  .review { grid-template-columns: 22px 1fr; gap: 10px; }
+  #board, .cg-wrap, .board-wrap { width: calc(100vw - 56px); height: calc(100vw - 56px); }
+  .nav-controls button { padding: 11px 6px; font-size: 17px; }
+}

@@ -9,6 +9,36 @@ import * as tournament from './views/tournament.js';
 
 const views = { personal, openings, train, class: classroom, tournament };
 
+// ---- accent theme ----
+const ACCENTS = {
+  green: { accent: '#7dd35f', deep: '#5cb83f', ink: '#08160a' },
+  blue: { accent: '#5ea0ff', deep: '#3f7fe0', ink: '#06122a' },
+  teal: { accent: '#3fd1c0', deep: '#2bb0a2', ink: '#042018' },
+  purple: { accent: '#b487ff', deep: '#9560e8', ink: '#160726' },
+  orange: { accent: '#f0a13a', deep: '#d4842a', ink: '#1a0f02' },
+  rose: { accent: '#f4709a', deep: '#e0507f', ink: '#2a0712' },
+};
+function applyTheme(key) {
+  const a = ACCENTS[key] || ACCENTS.green;
+  const r = document.documentElement.style;
+  r.setProperty('--accent', a.accent);
+  r.setProperty('--accent-deep', a.deep);
+  r.setProperty('--accent-ink', a.ink);
+}
+function buildSwatches(current) {
+  const wrap = document.getElementById('set-accents');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const [key, a] of Object.entries(ACCENTS)) {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (key === current ? ' active' : '');
+    sw.style.background = `linear-gradient(180deg, ${a.accent}, ${a.deep})`;
+    sw.title = key;
+    sw.onclick = () => { applyTheme(key); store.set('profile.accent', key); buildSwatches(key); };
+    wrap.appendChild(sw);
+  }
+}
+
 // ---- shared engine (single worker for the whole session) ----
 let _engine = null;
 let _enginePromise = null;
@@ -50,6 +80,7 @@ function openSettings() {
   $('set-depth').value = p.engineDepth || 14;
   $('set-depth-val').textContent = (p.engineDepth || 14);
   $('set-llmkey').value = p.llmKey || '';
+  buildSwatches(p.accent || 'green');
   dlg.showModal();
 }
 $('set-depth').addEventListener('input', (e) => ($('set-depth-val').textContent = e.target.value));
@@ -87,4 +118,5 @@ if (!store.storageAvailable()) {
   showEngineStatus('Heads up: this browser is blocking storage (private mode?) — progress won\'t be saved.');
 }
 updateOwnerBadge();
+applyTheme(store.get('profile.accent', 'green'));
 store.onRouteChange(draw);

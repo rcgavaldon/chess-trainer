@@ -135,6 +135,24 @@ export function computeInsights(analyses, username) {
   return out;
 }
 
+// Per-time-control breakdown (results from ALL imported games; accuracy where analyzed).
+export function byTimeControl(games, analyses) {
+  const accByUrl = {};
+  for (const a of analyses) accByUrl[a.url] = a.accuracy?.[a.userColor];
+  const m = {};
+  for (const g of games) {
+    const tc = g.timeClass || 'other';
+    const r = (m[tc] ||= { tc, games: 0, w: 0, l: 0, d: 0, acc: [] });
+    r.games++;
+    if (g.userResult === 'win') r.w++; else if (g.userResult === 'loss') r.l++; else r.d++;
+    const a = accByUrl[g.url];
+    if (a != null) r.acc.push(a);
+  }
+  return Object.values(m)
+    .map((r) => ({ tc: r.tc, games: r.games, w: r.w, l: r.l, d: r.d, winPct: Math.round(((r.w + r.d * 0.5) / r.games) * 100), accAvg: r.acc.length ? Math.round((r.acc.reduce((s, x) => s + x, 0) / r.acc.length)) : null }))
+    .sort((a, b) => b.games - a.games);
+}
+
 // ---- peer comparison against researched benchmark curves ----
 // benchmarks = { curves: [{ metric, unit, higherIsBetter, byRating:[{rating,value}] }], levelUpGaps:[...] }
 function interp(curve, rating) {

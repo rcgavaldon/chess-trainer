@@ -152,10 +152,10 @@ function renderLine() {
     h('button', { onclick: () => lineTo(L.ply - 1) }, '◀'),
     h('button', { onclick: () => lineTo(L.ply + 1) }, '▶'),
     h('button', { onclick: () => lineTo(L.sans.length) }, '⏭'));
-  host.append(h('div', { class: 'review section' },
-    h('div', { style: { width: '30px' } }),
-    h('div', { class: 'board-wrap' }, boardEl),
-    h('div', { class: 'sidebar' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)' } }, '♟ Coach'), coach, nav, moveRow)));
+  host.append(h('div', { class: 'trainer-grid section' },
+    h('div', { class: 'trainer-coach' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, '♟ Coach'), coach),
+    h('div', { class: 'board-wrap trainer-board' }, boardEl),
+    h('div', { class: 'trainer-side' }, nav, moveRow)));
   buildOpeningMoveList(moveRow);
   L.ground = createBoard(boardEl, { viewOnly: true, fen: L.positions[0].fen, coordinates: true });
   lineTo(0);

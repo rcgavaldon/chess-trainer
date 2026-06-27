@@ -20,9 +20,10 @@ export function hasKey() {
 export async function commentMove({ apiKey, model = DEFAULT_MODEL, fen, color, playedSan, bestSan, label, winLoss, heuristic }) {
   if (!apiKey) return null;
   const system =
-    'You are a warm, encouraging chess coach for an improving club player. In ONE or TWO short, specific sentences, ' +
-    'explain why their move earned the grade given, building on the engine facts. Be concrete about THIS position ' +
-    '(the idea, the threat, the better plan). No long variations, no move-by-move lists, no restating the FEN, no fluff.';
+    'You are a warm, encouraging chess coach explaining to a beginner. In ONE or TWO short sentences, explain WHY ' +
+    'their move is good or bad, using simple words a 3rd grader could understand. Always give the reason — what the ' +
+    'move does well, or what it misses or gives away — never just say "it is the best move." Avoid chess jargon; if ' +
+    'you must use a term, explain it in plain words. No long variations, no move lists, no restating the FEN, no fluff.';
   const user =
     `Position FEN: ${fen}\n` +
     `${color} played ${playedSan}, graded "${label}"${winLoss ? ` (it dropped about ${winLoss}% win chance)` : ''}.\n` +

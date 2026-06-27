@@ -29,7 +29,7 @@ function bars(rows, fmt = (v) => v) {
 
 const TYPE_LABEL = { hang: 'Hanging pieces', missed: 'Missed tactics', kingsafety: 'King safety', opening: 'Opening errors', fork: 'Forks', freecap: 'Free captures', fallback: 'Other', other: 'Other' };
 
-export function renderImprove(host, { insights: I, peer, plan, onTrain, onReviewBlunder }) {
+export function renderImprove(host, { insights: I, peer, plan, byTC, onTrain, onReviewBlunder }) {
   clear(host);
   if (!I || !I.games) { host.append(h('div', { class: 'empty' }, 'Run a deep scan to build your improvement profile.')); return; }
 
@@ -40,6 +40,8 @@ export function renderImprove(host, { insights: I, peer, plan, onTrain, onReview
     stat('Blunders / game', I.rates?.blundersPerGame),
     stat('Avg rating', I.ratingAvg ?? '—'),
     stat('First blunder', I.firstBlunderMove ? 'move ' + I.firstBlunderMove : '—', 'on average')));
+
+  renderByTimeControl(host, byTC);
 
   // accuracy trend
   host.append(h('div', { class: 'card section' }, h('h2', {}, 'Accuracy trend'), sparkline(I.accTrend),
@@ -125,6 +127,31 @@ function colorCard(title, acc, rec) {
   return h('div', { class: 'card' }, h('h2', {}, title),
     h('div', { class: 'accbar' }, h('div', {}, h('div', { class: 'acc', style: { color: accColor(acc) } }, pct(acc)), h('div', { class: 'who' }, 'accuracy')),
       h('div', { style: { marginLeft: 'auto' } }, h('div', { class: 'acc' }, `${rec.w}-${rec.l}-${rec.d}`), h('div', { class: 'who' }, 'W-L-D'))));
+}
+
+export function renderByTimeControl(host, byTC) {
+  if (!byTC || !byTC.length) return;
+  host.append(h('div', { class: 'card section' },
+    h('h2', {}, 'By time control'),
+    h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Time control'), h('th', {}, 'Games'), h('th', {}, 'Record'), h('th', {}, 'Win%'), h('th', {}, 'Accuracy'))),
+      h('tbody', {}, ...byTC.map((r) => h('tr', {},
+        h('td', {}, cap(r.tc)),
+        h('td', {}, r.games),
+        h('td', {}, `${r.w}-${r.l}-${r.d}`),
+        h('td', {}, h('b', { style: { color: r.winPct >= 55 ? 'var(--good)' : r.winPct >= 45 ? 'var(--warn)' : 'var(--bad)', fontFamily: 'var(--mono)' } }, r.winPct + '%')),
+        h('td', {}, r.accAvg != null ? h('span', { style: { color: accColor(r.accAvg) } }, r.accAvg + '%') : h('span', { class: 'hint tiny' }, 'analyze to see')))))),
+    tcSuggestion(byTC)));
+}
+
+function tcSuggestion(byTC) {
+  const sig = byTC.filter((r) => r.games >= 3);
+  if (sig.length < 2) return null;
+  const best = [...sig].sort((a, b) => b.winPct - a.winPct)[0];
+  const worst = [...sig].sort((a, b) => a.winPct - b.winPct)[0];
+  if (best.tc === worst.tc) return null;
+  return h('div', { class: 'hint tiny', style: { marginTop: '8px' } },
+    `💡 You score best in ${cap(best.tc)} (${best.winPct}%) and worst in ${cap(worst.tc)} (${worst.winPct}%). Faster controls reward fast pattern-spotting; slower ones reward calculation — lean into your strength while you shore up the weak one.`);
 }
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);

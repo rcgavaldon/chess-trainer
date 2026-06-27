@@ -5,8 +5,8 @@ import { h, clear, fmtDate, pct } from '../dom.js';
 import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
 import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnapshot } from '../review.js';
-import { computeInsights, comparePeers, improvementPlan } from '../insights.js';
-import { renderImprove } from '../insightsview.js';
+import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
+import { renderImprove, renderByTimeControl } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
 import { createBoard, syncBoard, legalDests, evalToWhitePct, evalText, showArrow } from '../board.js';
@@ -16,7 +16,7 @@ import {
   recordAttempt, difficultyForTheme, loadThemeShard,
 } from '../puzzles.js';
 
-const S = { username: '', timeClass: 'rapid', games: [], analyses: {} }; // analyses keyed by game.url
+const S = { username: '', timeClass: 'all', games: [], analyses: {} }; // analyses keyed by game.url
 let CTX = null;
 let host = null; // main container
 let pendingImport = null;
@@ -29,7 +29,7 @@ export function render(container, ctx) {
   host = container;
   const p = store.get('profile', {});
   S.username = pendingImport || S.username || p.username || '';
-  S.timeClass = p.timeClass || S.timeClass;
+  S.timeClass = S.timeClass || 'all';
   drawHome();
   if (pendingImport) { pendingImport = null; doImport(); }
 }
@@ -121,8 +121,14 @@ function drawImprove() {
   if (!area) return;
   clear(area).append(h('h2', {}, 'Improve'), deepScanBar());
   const analyses = currentAnalyses();
+  const u = (S.username || '').toLowerCase();
+  const myGames = S.games.filter((g) => (g.username || '').toLowerCase() === u);
+  // by-time-control breakdown shows immediately — results don't need engine analysis
+  const tcWrap = h('div', {});
+  area.append(tcWrap);
+  renderByTimeControl(tcWrap, byTimeControl(myGames, analyses));
   if (!analyses.length) {
-    area.append(h('div', { class: 'hint section' }, 'Deep-scan your recent games to unlock your improvement dashboard, peer comparison, and a personalized plan.'));
+    area.append(h('div', { class: 'hint section' }, 'Deep-scan your recent games to unlock accuracy, peer comparison, weaknesses, and a personalized plan.'));
     return;
   }
   const I = computeInsights(analyses, S.username);
@@ -131,7 +137,7 @@ function drawImprove() {
   const plan = improvementPlan(I, peer);
   const dash = h('div', { class: 'section' });
   area.append(dash);
-  renderImprove(dash, { insights: I, peer, plan, onTrain: trainTheme });
+  renderImprove(dash, { insights: I, peer, plan, byTC: null, onTrain: trainTheme });
 
   // optional Claude-written coach's note (owner's API key)
   const key = store.get('profile.llmKey', '');
@@ -169,7 +175,7 @@ async function doImport() {
   clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Fetching recent games…'));
   controlsBar._btn.disabled = true;
   try {
-    const games = await cc.fetchRecentGames(username, { months: 6, timeClass, limit: 30 });
+    const games = await cc.fetchRecentGames(username, { months: 8, timeClass, limit: 50 });
     games.forEach((g) => (g.username = username));
     S.games = games;
     if (games.length) { await preloadCached(); drawHome(); }
