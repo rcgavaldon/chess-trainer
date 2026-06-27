@@ -120,6 +120,19 @@ export function buildGamePositionIndex(games) {
   return idx;
 }
 
+// Lichess opening-explorer: for any position, the most common moves with W/D/L stats.
+// CORS-open; may be unreachable on some networks (caller should fall back gracefully).
+export async function fetchExplorer(fen, { ratings = '1200,1400,1600,1800,2000', speeds = 'blitz,rapid', moves = 12 } = {}) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const url = `https://explorer.lichess.org/lichess?fen=${encodeURIComponent(fen)}&moves=${moves}&ratings=${ratings}&speeds=${speeds}`;
+    const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('explorer ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
 // Search the book by name or ECO. Returns up to `limit`, preferring shorter (mainline) names.
 export async function searchOpenings(query, limit = 40) {
   const book = await loadOpenings();

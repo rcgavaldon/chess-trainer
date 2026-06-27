@@ -7,7 +7,7 @@ import { getGames } from '../games.js';
 import { createBoard, legalDests, syncBoard, showArrow } from '../board.js';
 import {
   loadOpenings, correlateGames, buildGamePositionIndex, searchOpenings, popularOpenings,
-  suggestOpenings, epdOf, findOpeningMistakes,
+  suggestOpenings, epdOf, findOpeningMistakes, fetchExplorer,
 } from '../openings.js';
 import { whatYouFace, scoutPeers } from '../peers.js';
 
@@ -127,15 +127,96 @@ function renderOpeningList(el, list, title) {
 // ---- line play-through with coach ----
 const L = { opening: null, ply: 0, ground: null, sans: [], positions: [] };
 
-function openByMoves(opening) {
-  L.opening = opening;
-  // precompute board positions (fen + epd) after each ply
-  const c = new Chess();
-  L.positions = [{ fen: c.fen(), epd: epdOf(c.fen()), move: null }];
-  for (const san of opening.san) { const m = c.move(san); L.positions.push({ fen: c.fen(), epd: epdOf(c.fen()), move: m }); }
-  L.sans = opening.san;
-  L.ply = 0;
-  renderLine();
+function openByMoves(opening) { openExplorer(opening); }
+
+// ---- navigable opening explorer (real data from the Lichess explorer) ----
+const EX = { chess: null, ground: null, opening: null };
+
+function openExplorer(opening) {
+  const chess = new Chess();
+  if (opening && opening.san) for (const s of opening.san) { try { chess.move(s); } catch { break; } }
+  EX.chess = chess; EX.opening = opening;
+  renderExplorer();
+}
+
+function renderExplorer() {
+  clear(host);
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: draw }, '← Back to openings'),
+      h('div', { class: 'hint', id: 'ex-eco', style: { fontFamily: 'var(--mono)' } }, EX.opening?.eco || '')),
+    h('h1', { style: { marginTop: '8px' }, id: 'ex-name' }, EX.opening?.name || 'Opening explorer'));
+  const boardEl = h('div', { id: 'ex-board' });
+  const coach = h('div', { class: 'explain-box', id: 'ex-coach', style: { minHeight: '70px' } });
+  const movesPanel = h('div', { class: 'card', id: 'ex-moves' });
+  const nav = h('div', { class: 'nav-controls' },
+    h('button', { onclick: exBack, title: 'Take back a move' }, '◀ back'),
+    h('button', { onclick: () => { EX.chess = new Chess(); EX.opening = null; exReload(); }, title: 'Reset to start' }, '⟲ start'));
+  host.append(h('div', { class: 'trainer-grid section' },
+    h('div', { class: 'trainer-coach' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, '♟ Coach'), coach),
+    h('div', { class: 'board-wrap trainer-board' }, boardEl),
+    h('div', { class: 'trainer-side' }, nav, movesPanel)));
+  EX.ground = createBoard(boardEl, { viewOnly: true, coordinates: true, fen: EX.chess.fen() });
+  exReload();
+}
+
+function exBack() { try { EX.chess.undo(); } catch {} exReload(); }
+
+async function exReload() {
+  const fen = EX.chess.fen();
+  const last = EX.chess.history({ verbose: true }).slice(-1)[0];
+  EX.ground.set({ fen, lastMove: last ? [last.from, last.to] : undefined, check: EX.chess.isCheck() });
+  exCoach();
+  const panel = document.getElementById('ex-moves');
+  clear(panel).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading the most common moves…'));
+  let data = null;
+  try { data = await fetchExplorer(fen); } catch {}
+  if (document.getElementById('ex-moves') !== panel) return;
+  renderExMoves(panel, data, fen);
+}
+
+function exCoach() {
+  const box = document.getElementById('ex-coach');
+  if (!box) return;
+  const refs = (OS.posIndex && OS.posIndex.get(epdOf(EX.chess.fen()))) || [];
+  const moves = EX.chess.history();
+  clear(box);
+  box.append(h('div', { class: 'hint tiny' }, moves.length ? moves.map((m, i) => (i % 2 === 0 ? Math.floor(i / 2) + 1 + '.' : '') + m).join(' ') : 'Starting position — pick a move.'));
+  if (refs.length) {
+    const sample = refs.slice(0, 3).map((r) => `vs ${r.opponent} (${r.result === 'win' ? 'won' : r.result === 'loss' ? 'lost' : 'drew'})`).join(', ');
+    box.append(h('div', { style: { marginTop: '8px', color: 'var(--accent-2)', fontWeight: 700, fontSize: '13px' } }, `📌 You've had this exact position in ${refs.length} of your games`),
+      h('div', { class: 'hint tiny' }, sample));
+  }
+}
+
+function winBar(w, dr, b) {
+  const t = w + dr + b || 1;
+  return `<div style="display:flex;height:13px;border-radius:4px;overflow:hidden;width:130px;border:1px solid var(--line)">
+    <div style="width:${(w / t * 100).toFixed(1)}%;background:#e9ece8"></div>
+    <div style="width:${(dr / t * 100).toFixed(1)}%;background:#7d8079"></div>
+    <div style="width:${(b / t * 100).toFixed(1)}%;background:#2a2d28"></div></div>`;
+}
+
+function renderExMoves(panel, data, fen) {
+  clear(panel);
+  if (!data || !data.moves || !data.moves.length) {
+    panel.append(h('div', { class: 'hint' }, 'No opening data for this position — you\'ve left known theory (good place to think!), or the explorer is offline.'));
+    return;
+  }
+  if (data.opening) { const nEl = document.getElementById('ex-name'), eEl = document.getElementById('ex-eco'); if (nEl) nEl.textContent = data.opening.name; if (eEl) eEl.textContent = data.opening.eco; }
+  const total = data.white + data.draws + data.black;
+  const whiteToMove = fen.split(' ')[1] === 'w';
+  const scored = data.moves.map((m) => { const t = m.white + m.draws + m.black || 1; return { m, t, scorePct: Math.round(((whiteToMove ? m.white : m.black) + m.draws * 0.5) / t * 100) }; });
+  const bestPct = Math.max(...scored.map((s) => s.scorePct));
+  panel.append(h('div', { class: 'hint tiny', style: { marginBottom: '8px' } }, `${total.toLocaleString()} games · ${whiteToMove ? 'White' : 'Black'} to move · click a move to go deeper`));
+  for (const s of scored) {
+    const m = s.m;
+    const isBest = s.scorePct === bestPct && s.t > total * 0.03;
+    panel.append(h('div', { class: 'ex-move', onclick: () => { try { EX.chess.move(m.san); exReload(); } catch {} } },
+      h('div', { class: 'ex-san' }, m.san, isBest ? h('span', { style: { color: 'var(--good)' } }, ' ✓') : null),
+      h('div', { html: winBar(m.white, m.draws, m.black) }),
+      h('div', { class: 'ex-meta' }, Math.round(s.t / total * 100) + '%', h('span', { class: 'hint tiny' }, ` · scores ${s.scorePct}%`))));
+  }
 }
 
 function renderLine() {

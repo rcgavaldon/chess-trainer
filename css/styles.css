@@ -245,6 +245,13 @@ details.more > summary::before { content: '▸ '; }
 details.more[open] > summary::before { content: '▾ '; }
 details.more > summary:hover { color: var(--text); }
 
+/* ---- opening explorer ---- */
+.ex-move { display: grid; grid-template-columns: 58px 1fr 90px; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; transition: background .12s; }
+.ex-move:hover { background: var(--surface-2); }
+.ex-san { font-weight: 700; font-family: var(--mono); font-size: 15px; }
+.ex-meta { text-align: right; font-size: 12px; color: var(--muted); }
+#ex-moves { max-height: 460px; overflow-y: auto; }
+
 /* ---- toast / misc ---- */
 .engine-status { position: fixed; bottom: 18px; right: 18px; background: var(--elevated); border: 1px solid var(--line-strong);
   border-radius: 12px; padding: 11px 16px; font-size: 13px; box-shadow: var(--shadow-lg); z-index: 50; max-width: 320px; }
