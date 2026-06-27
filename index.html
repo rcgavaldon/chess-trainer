@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chess Trainer</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chessground@9.2.1/assets/chessground.base.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chessground@9.2.1/assets/chessground.brown.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chessground@9.2.1/assets/chessground.cburnett.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "chess.js": "https://cdn.jsdelivr.net/npm/chess.js@1.4.0/dist/esm/chess.js",
+        "chessground": "https://cdn.jsdelivr.net/npm/chessground@9.2.1/dist/chessground.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">♞ Chess&nbsp;Trainer</div>
+    <nav class="tabs">
+      <a href="#/personal" data-route="personal">Personal</a>
+      <a href="#/class" data-route="class">Class</a>
+      <a href="#/tournament" data-route="tournament">Tournament</a>
+    </nav>
+    <span id="owner-badge" class="owner-badge"></span>
+    <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
+  </header>
+
+  <main id="view"></main>
+
+  <dialog id="settings-dialog">
+    <form method="dialog" class="settings-form">
+      <h3>Settings</h3>
+      <label>Your name (owner)
+        <input id="set-owner" type="text" placeholder="e.g. Robert" autocomplete="off" />
+      </label>
+      <label>Your Chess.com username
+        <input id="set-username" type="text" placeholder="e.g. rcgavaldon" autocomplete="off" />
+      </label>
+      <label>Default time control
+        <select id="set-timeclass">
+          <option value="rapid">Rapid</option>
+          <option value="blitz">Blitz</option>
+          <option value="bullet">Bullet</option>
+          <option value="daily">Daily</option>
+          <option value="all">All</option>
+        </select>
+      </label>
+      <label>Engine depth (higher = slower, more accurate)
+        <input id="set-depth" type="range" min="10" max="20" step="1" />
+        <span id="set-depth-val" class="muted"></span>
+      </label>
+      <label>Anthropic API key — optional, for richer move commentary
+        <input id="set-llmkey" type="password" placeholder="sk-ant-…  (stored only in this browser)" autocomplete="off" />
+      </label>
+      <p class="muted tiny">Your key is stored only in this browser's localStorage and used solely for your own
+        commentary requests. Don't use it on a shared computer.</p>
+      <menu>
+        <button value="cancel" class="btn ghost">Cancel</button>
+        <button id="set-save" value="save" class="btn">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div id="engine-status" class="engine-status" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
