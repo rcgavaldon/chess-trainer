@@ -9,6 +9,7 @@ import {
   loadOpenings, correlateGames, buildGamePositionIndex, searchOpenings, popularOpenings,
   suggestOpenings, epdOf, findOpeningMistakes,
 } from '../openings.js';
+import { whatYouFace, scoutPeers } from '../peers.js';
 
 const OS = { username: '', games: [], correlation: null, posIndex: null, mode: 'yours', loaded: false };
 let CTX = null, host = null;
@@ -29,6 +30,7 @@ function draw() {
   );
   if (OS.mode === 'explore') drawExplore();
   else if (OS.mode === 'mistakes') drawMistakes();
+  else if (OS.mode === 'scout') drawScout();
   else { if (!OS.loaded && OS.username) loadYours(); else drawYours(); }
 }
 
@@ -39,7 +41,7 @@ function controls() {
   return h('div', { class: 'controls' },
     h('div', { class: 'field username' }, h('label', {}, 'Username'), user),
     h('div', { class: 'field' }, h('label', { class: 'tiny' }, ' '), h('button', { class: 'btn', onclick: () => { OS.username = user.value.trim(); OS.loaded = false; draw(); } }, 'Load')),
-    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('mistakes', 'Your mistakes'), tab('explore', 'Explore all'))),
+    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('mistakes', 'Your mistakes'), tab('scout', 'Scout'), tab('explore', 'Explore all'))),
   );
 }
 
@@ -344,4 +346,47 @@ function pvRender() {
   let last = null;
   for (let k = 0; k < PV_WALK.i; k++) { const u = PV_WALK.pv[k]; const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }); if (m) last = [m.from, m.to]; }
   ML.ground.set({ fen: c.fen(), lastMove: last, orientation: PV_WALK.color });
+}
+
+// ---- scouting ----
+const scoreColor = (p) => (p >= 55 ? 'var(--good)' : p >= 45 ? 'var(--warn)' : 'var(--bad)');
+
+async function drawScout() {
+  const body = document.getElementById('op-body');
+  if (!OS.username) { clear(body).append(h('div', { class: 'empty' }, 'Enter your username above first.')); return; }
+  clear(body).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your games…'));
+  let games = [];
+  try { games = await getGames(OS.username, { months: 8, timeClass: 'all', limit: 50 }); } catch {}
+  const face = whatYouFace(games);
+  clear(body);
+  body.append(
+    h('h2', {}, 'What you face most'),
+    h('p', { class: 'hint' }, 'The openings that show up most in your games and how you score in them — so you know what to prepare.'),
+    faceTable('As White', face.asWhite),
+    faceTable('As Black', face.asBlack),
+    h('div', { class: 'card section' },
+      h('h2', {}, 'What stronger players play'),
+      h('p', { class: 'hint' }, 'Sample the openings your higher-rated opponents favor — a peek at the level you\'re chasing.'),
+      h('button', { class: 'btn', id: 'scout-btn', onclick: () => runScout(games) }, 'Scout players above me')),
+  );
+}
+
+function faceTable(title, list) {
+  if (!list.length) return h('div', { class: 'hint tiny section' }, `${title}: not enough games yet.`);
+  return h('div', { class: 'card section' }, h('h2', {}, title),
+    h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Opening'), h('th', {}, 'Games'), h('th', {}, 'Your score'))),
+      h('tbody', {}, ...list.slice(0, 8).map((o) => h('tr', {}, h('td', {}, o.name), h('td', {}, o.games),
+        h('td', {}, h('b', { style: { color: scoreColor(o.scorePct), fontFamily: 'var(--mono)' } }, o.scorePct + '%')))))));
+}
+
+async function runScout(games) {
+  const btn = document.getElementById('scout-btn');
+  btn.disabled = true; btn.textContent = 'Scouting…';
+  let res;
+  try { res = await scoutPeers(games, OS.username, { onProgress: (p) => { btn.textContent = `Scouting… ${p.done}/${p.total}`; } }); }
+  catch { res = null; }
+  if (!res || !res.gamesSampled) { btn.replaceWith(h('div', { class: 'hint' }, 'Couldn\'t sample peer games right now (try again shortly).')); return; }
+  btn.replaceWith(h('div', {},
+    h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, `From ${res.gamesSampled} games of ${res.opponentsSampled} opponents ~${res.avgDelta} points above you, the most common openings:`),
+    h('div', { class: 'chip-row' }, ...res.topOpenings.map((o) => h('span', { class: 'chip' }, o.name, h('span', { class: 'w' }, o.pct + '%'))))));
 }
