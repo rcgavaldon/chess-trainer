@@ -158,7 +158,7 @@ export async function evictLRU(keepNewest = 5000) {
 // ============================================================
 // hash router: #/personal | #/class | #/tournament
 // ============================================================
-export const ROUTES = ['personal', 'class', 'tournament'];
+export const ROUTES = ['personal', 'openings', 'train', 'class', 'tournament'];
 export function currentRoute() {
   const r = (location.hash.replace(/^#\//, '').split('/')[0]) || 'personal';
   return ROUTES.includes(r) ? r : 'personal';

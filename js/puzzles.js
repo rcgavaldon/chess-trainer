@@ -124,6 +124,16 @@ export function puzzleFromShard(row) {
   return { id: row.id, fen: board.fen(), solutionMoves: moves.slice(1), theme: (row.themes && row.themes[0]) || 'mix', themes: row.themes || [], sourceGameUrl: row.gameUrl || null, rating: row.rating ?? null, source: 'shard' };
 }
 
+// Load ALL puzzles from a theme shard (for Puzzle Storm pools). Empty if none hosted.
+export async function loadFullShard(theme) {
+  let rows;
+  try { rows = await fetchTimeout('puzzles/' + theme + '.json', 8000); } catch { return []; }
+  if (!Array.isArray(rows)) return [];
+  const out = [];
+  for (const r of rows) { try { out.push(puzzleFromShard(r)); } catch {} }
+  return out;
+}
+
 // Load curated puzzles for a theme from a repo-hosted shard. Returns up to `count`
 // puzzles near `targetRating` (if given), or null if no shard is hosted for the theme.
 export async function loadThemeShard(theme, { count = 6, targetRating = null } = {}) {

@@ -2,10 +2,12 @@
 import * as store from './storage.js';
 import { createEngine } from './engine.js';
 import * as personal from './views/personal.js';
+import * as openings from './views/openings.js';
+import * as train from './views/train.js';
 import * as classroom from './views/classroom.js';
 import * as tournament from './views/tournament.js';
 
-const views = { personal, class: classroom, tournament };
+const views = { personal, openings, train, class: classroom, tournament };
 
 // ---- shared engine (single worker for the whole session) ----
 let _engine = null;
