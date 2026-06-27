@@ -3,6 +3,7 @@ import { h, clear } from '../dom.js';
 import * as store from '../storage.js';
 import { loadFullShard, loadThemeShard, recordAttempt } from '../puzzles.js';
 import { mountPuzzle } from '../puzzleplay.js';
+import { mountChat } from '../chatcoach.js';
 
 const TR = { _timer: null };
 let CTX = null, host = null;
@@ -153,7 +154,14 @@ function drillPuzzle() {
     h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
       h('div', { class: 'board-wrap' }, h('div', { id: 'drill-board' })),
       h('div', { class: 'sidebar' }, status,
-        h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => api.hint() }, 'Hint'), nextBtn))));
+        h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => api.hint() }, 'Hint'), nextBtn),
+        h('div', { class: 'section' },
+          h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '6px', color: 'var(--accent-2)' } }, '💬 Ask the coach'),
+          h('div', { id: 'drill-chat' })))));
+  mountChat(document.getElementById('drill-chat'), {
+    getContext: () => `Tactics puzzle, player to move. FEN: ${p.fen}. The correct solution moves (UCI) are: ${p.solutionMoves.join(' ')}. Theme: ${p.theme}. Help the player understand WHY this works; don't just give the moves unless they ask.`,
+    starter: 'Ask about this puzzle…',
+  });
   const api = mountPuzzle(document.getElementById('drill-board'), p, {
     onSolved: () => { status.textContent = '✓ Solved!'; status.className = 'puzzle-status ok'; nextBtn.disabled = false; record(true); },
     onWrong: (_p, first) => { status.textContent = '✗ Not the move — try again.'; status.className = 'puzzle-status no'; if (first) record(false); },

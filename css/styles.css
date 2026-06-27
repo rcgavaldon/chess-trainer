@@ -221,6 +221,15 @@ dialog::backdrop { background: rgba(6, 9, 12, .65); backdrop-filter: blur(4px); 
 .swatch:hover { transform: scale(1.08); }
 .swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface); }
 
+/* ---- coach chat ---- */
+.chatbox { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 11px; }
+.chatlog { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+.chatlog:empty { display: none; }
+.chat-msg { padding: 8px 12px; border-radius: 12px; font-size: 13.5px; max-width: 92%; line-height: 1.45; white-space: pre-wrap; }
+.chat-msg.user { background: var(--accent-2); color: #07101f; align-self: flex-end; border-bottom-right-radius: 3px; font-weight: 500; }
+.chat-msg.coach { background: var(--elevated); align-self: flex-start; border-bottom-left-radius: 3px; }
+.chatbox .row input { border-radius: 9px; }
+
 /* ---- toast / misc ---- */
 .engine-status { position: fixed; bottom: 18px; right: 18px; background: var(--elevated); border: 1px solid var(--line-strong);
   border-radius: 12px; padding: 11px 16px; font-size: 13px; box-shadow: var(--shadow-lg); z-index: 50; max-width: 320px; }

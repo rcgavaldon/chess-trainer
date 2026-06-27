@@ -10,6 +10,7 @@ import { computeDimensions, dailyPlan } from '../report.js';
 import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
+import { mountChat } from '../chatcoach.js';
 import { createBoard, syncBoard, legalDests, evalToWhitePct, evalText, showArrow } from '../board.js';
 import { LABELS } from '../analysis.js';
 import {
@@ -284,7 +285,10 @@ function renderReview(game, analysis) {
     h('div', { class: 'review section' },
       evalbar,
       h('div', { class: 'board-wrap' }, boardEl),
-      h('div', { class: 'sidebar' }, nav, explainBox, moveList)),
+      h('div', { class: 'sidebar' }, nav, explainBox, moveList,
+        h('div', { class: 'section' },
+          h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '6px', color: 'var(--accent-2)' } }, '💬 Ask the coach'),
+          h('div', { id: 'review-chat' })))),
     buildEvalGraph(analysis),
   );
 
@@ -293,6 +297,7 @@ function renderReview(game, analysis) {
   buildMoveList(moveList, analysis);
   stepTo(0);
   attachKeys();
+  mountChat(document.getElementById('review-chat'), { getContext: reviewContext, starter: 'Ask about this move…' });
 }
 
 function accSide(name, v) {
@@ -410,6 +415,15 @@ function jumpToNextMistake() {
   const bad = ['Inaccuracy', 'Miss', 'Mistake', 'Blunder'];
   for (let i = R.ply; i < a.plies.length; i++) if (bad.includes(a.plies[i].label)) return stepTo(i + 1);
   for (let i = 0; i < a.plies.length; i++) if (bad.includes(a.plies[i].label)) return stepTo(i + 1); // wrap around
+}
+
+function reviewContext() {
+  const a = R.analysis, ply = R.ply, g = R.game;
+  if (!a) return 'No game loaded.';
+  if (ply === 0) return `Game: ${g.userColor} (the player) vs ${g.opponent}. Starting position.`;
+  const p = a.plies[ply - 1];
+  return `The player is ${g.userColor}. Position after ${p.moveNumber}${p.color === 'white' ? '.' : '…'} ${p.san} (FEN: ${p.fenAfter}). ` +
+    `That move was graded "${p.label}"${p.winLoss >= 1 ? ` (lost ~${p.winLoss}% win chance)` : ''}. The engine preferred ${p.bestSan || 'n/a'}. Coach note: ${p.explanation}`;
 }
 
 function flipBoard() { R.orientation = R.orientation === 'white' ? 'black' : 'white'; R.ground.set({ orientation: R.orientation }); }
