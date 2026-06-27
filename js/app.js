@@ -124,6 +124,7 @@ if (_params.get('u')) {
   store.set('profile.username', _params.get('u').trim());
   if (_params.get('name')) store.set('profile.ownerName', _params.get('name').trim());
   if (_params.get('accent')) store.set('profile.accent', _params.get('accent').trim());
+  if (_params.get('role')) { store.set('profile.role', _params.get('role').trim()); store.set('profile.welcomeSeen', false); }
   store.set('profile.onboarded', true);
 }
 

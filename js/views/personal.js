@@ -54,6 +54,7 @@ function drawHome() {
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
       h('h1', {}, owner ? `${owner}'s coach` : 'Your coach'),
       S.games.length ? h('div', { class: 'hint tiny' }, `Last ${S.games.length} games · `, h('a', { href: 'javascript:void 0', onclick: () => reSync() }, 'refresh')) : null),
+    store.get('profile.welcomeSeen') ? null : welcomeCard(),
     h('div', { id: 'report-area', class: 'section' }),
   );
   const area = document.getElementById('report-area');
@@ -63,6 +64,26 @@ function drawHome() {
 }
 
 function reSync() { S.games = []; S._autoScanned = false; doImport(); }
+
+function welcomeCard() {
+  const name = store.get('profile.ownerName', '') || 'coach';
+  const admin = store.get('profile.role', '') === 'admin';
+  const item = (icon, title, desc) => h('div', { style: { display: 'flex', gap: '10px', marginBottom: '9px' } },
+    h('div', { style: { fontSize: '18px', lineHeight: '1.3' } }, icon),
+    h('div', {}, h('b', {}, title), h('div', { class: 'hint tiny' }, desc)));
+  const card = h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2), var(--shadow-sm)' } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'flex-start' } },
+      h('div', { style: { fontSize: '19px', fontWeight: 800 } }, `Welcome, ${name}! 👋`),
+      h('button', { class: 'btn ghost small', onclick: () => { store.set('profile.welcomeSeen', true); card.remove(); } }, 'Got it')),
+    h('div', { class: 'hint', style: { margin: '4px 0 14px' } }, admin ? 'Your AI chess coach — for your own game and for your players. Here\'s the lay of the land:' : 'Your AI chess coach. Here\'s what\'s inside:'),
+    item('📊', 'Personal', 'Your report — strongest/weakest skills, what to work on, and trends. Auto-loads your last 50 games.'),
+    item('♟', 'Openings', 'Explore any opening with real win-rate data, see what you face most, and review your own opening mistakes.'),
+    item('🎯', 'Train', 'A daily puzzle set built for your weak spots, plus Puzzle Storm and focused drills.'),
+    admin ? item('👥', 'Class — your players', 'Add students by Chess.com username (no logins needed), see each one\'s form and weaknesses, and open any of them in the full review.') : null,
+    admin ? item('🏆', 'Tournament', 'Build an event from a roster and auto-generate pairings (Swiss / round-robin / balanced) with live standings.') : null,
+    h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, 'Tip: add your Anthropic API key in ⚙ Settings to unlock the AI chat coach on moves and puzzles.'));
+  return card;
+}
 
 function usernamePrompt() {
   const inp = h('input', { type: 'text', placeholder: 'Your Chess.com username', style: { maxWidth: '260px' }, onkeydown: (e) => { if (e.key === 'Enter') go(); } });
