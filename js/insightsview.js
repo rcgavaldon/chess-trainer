@@ -129,6 +129,40 @@ function colorCard(title, acc, rec) {
       h('div', { style: { marginLeft: 'auto' } }, h('div', { class: 'acc' }, `${rec.w}-${rec.l}-${rec.d}`), h('div', { class: 'who' }, 'W-L-D'))));
 }
 
+// Aimchess-style skill scorecard (superpower / weakness + per-dimension bars).
+export function renderScorecard(host, dims) {
+  const core = dims.filter((d) => !d.bonus).sort((a, b) => b.score - a.score);
+  const sup = core[0], weak = core[core.length - 1];
+  const dimBar = (d) => {
+    const color = d.score >= 65 ? 'var(--good)' : d.score >= 45 ? 'var(--warn)' : 'var(--bad)';
+    return h('div', { class: 'bar-row', style: { gridTemplateColumns: '190px 1fr 58px' } },
+      h('div', {}, d.name, d.bonus ? h('span', { class: 'hint tiny' }, ' bonus') : null),
+      h('div', { class: 'track' }, h('div', { class: 'fill', style: { width: d.score + '%', background: color } })),
+      h('div', { style: { textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 700, color } }, d.score + (d.trend ? ' ' + (d.trend > 0 ? '▲' : '▼') : '')));
+  };
+  host.append(h('div', { class: 'card section' },
+    h('h2', {}, 'Your skills'),
+    h('div', { class: 'chip-row', style: { marginBottom: '14px' } },
+      h('span', { class: 'pill', style: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } }, `★ Superpower: ${sup.name} ${sup.score}`),
+      h('span', { class: 'pill', style: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' } }, `⚑ Work on: ${weak.name} ${weak.score}`)),
+    h('div', { class: 'bars' }, ...dims.map(dimBar)),
+    h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, 'Scores (0–100, higher is better) rank your skills against each other — they show where to focus.')));
+}
+
+// The engagement engine: Today's Plan.
+export function renderTodayPlan(host, plan, onTrain) {
+  const row = (label, text) => h('div', { style: { marginBottom: '6px' } }, h('b', { style: { color: 'var(--accent-2)' } }, label + ': '), text);
+  host.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2), var(--shadow-sm)' } },
+    h('h2', {}, plan.rest ? '😌 Today' : '🎯 Today\'s plan'),
+    plan.positive ? h('div', { style: { color: 'var(--good)', fontWeight: 600, marginBottom: '6px' } }, plan.positive) : null,
+    h('div', { style: { fontWeight: 700, fontSize: '15px', marginBottom: '10px' } }, plan.headline),
+    row('♟ Play', plan.game),
+    row('📚 Study', plan.study),
+    h('div', { class: 'row', style: { marginTop: '12px' } },
+      onTrain && plan.studyTheme ? h('button', { class: 'btn small', onclick: () => onTrain(plan.studyTheme) }, 'Start training') : null),
+    h('div', { class: 'hint tiny', style: { marginTop: '8px' } }, plan.sessionNote)));
+}
+
 export function renderByTimeControl(host, byTC) {
   if (!byTC || !byTC.length) return;
   host.append(h('div', { class: 'card section' },

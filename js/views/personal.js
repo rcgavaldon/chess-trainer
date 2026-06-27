@@ -6,7 +6,8 @@ import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
 import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnapshot } from '../review.js';
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
-import { renderImprove, renderByTimeControl } from '../insightsview.js';
+import { computeDimensions, dailyPlan } from '../report.js';
+import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
 import { createBoard, syncBoard, legalDests, evalToWhitePct, evalText, showArrow } from '../board.js';
@@ -123,18 +124,23 @@ function drawImprove() {
   const analyses = currentAnalyses();
   const u = (S.username || '').toLowerCase();
   const myGames = S.games.filter((g) => (g.username || '').toLowerCase() === u);
-  // by-time-control breakdown shows immediately — results don't need engine analysis
-  const tcWrap = h('div', {});
-  area.append(tcWrap);
-  renderByTimeControl(tcWrap, byTimeControl(myGames, analyses));
+
   if (!analyses.length) {
-    area.append(h('div', { class: 'hint section' }, 'Deep-scan your recent games to unlock accuracy, peer comparison, weaknesses, and a personalized plan.'));
+    renderByTimeControl(area, byTimeControl(myGames, analyses));
+    area.append(h('div', { class: 'hint section' }, 'Deep-scan your recent games to unlock your skill scorecard, daily plan, accuracy, peer comparison, and weaknesses.'));
     return;
   }
+
   const I = computeInsights(analyses, S.username);
+  const dims = computeDimensions(I);
+  const today = dailyPlan(dims, I, I.openings);
   const rating = I.ratingAvg;
   const peer = BENCHMARKS && rating ? comparePeers(I, rating, BENCHMARKS) : null;
   const plan = improvementPlan(I, peer);
+
+  renderTodayPlan(area, today, trainTheme);   // engagement engine — high on the page
+  renderScorecard(area, dims);                 // skill radar / superpower + weakness
+  renderByTimeControl(area, byTimeControl(myGames, analyses));
   const dash = h('div', { class: 'section' });
   area.append(dash);
   renderImprove(dash, { insights: I, peer, plan, byTC: null, onTrain: trainTheme });

@@ -1,0 +1,126 @@
+// report.js — Aimchess-style skill dimensions + a daily plan, from the insights object.
+// Scores are 0-100 (higher = better), derived from the player's own Stockfish/clock/result
+// signals. They rank the player's skills against EACH OTHER (superpower vs weakness) and drive
+// the daily plan. Peer context comes from the separate, data-backed peer comparison.
+
+const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+const r0 = (x) => Math.round(x);
+
+// Build the six core + two bonus dimensions from a computeInsights() result.
+export function computeDimensions(I) {
+  const g = Math.max(1, I.games);
+  const moves = Math.max(1, I.userMoves);
+  const c = I.counts;
+
+  // Tactics: weighted error rate per 100 of your moves (+ middlegame leakage).
+  const errPer100 = ((c.Blunder * 3 + c.Mistake * 2 + c.Inaccuracy) / moves) * 100;
+  const tactics = clamp(100 - errPer100 * 1.5, 4, 99);
+
+  // Openings: win% bled in the opening phase, per game.
+  const openings = clamp(96 - (I.phaseLoss.opening / g) * 1.4, 4, 99);
+
+  // Endgame: win% bled in the endgame phase, per game.
+  const endgame = clamp(94 - (I.phaseLoss.endgame / g) * 1.6, 4, 99);
+
+  // Advantage Capitalization: convert winning positions.
+  const conv = I.conversion.winningReached ? I.conversion.winningConverted / I.conversion.winningReached : null;
+  const advantage = conv == null ? 50 : clamp(8 + conv * 90, 4, 99);
+
+  // Resourcefulness: save lost positions (rare — scale generously).
+  const save = I.conversion.losingReached ? I.conversion.losingSaved / I.conversion.losingReached : null;
+  const resource = save == null ? 50 : clamp(28 + save * 120, 4, 99);
+
+  // Time Management: time-trouble + rushed blunders per game.
+  const ttRate = (I.time.timeTroubleBlunders + I.time.rushedBlunders) / g;
+  const time = clamp(94 - ttRate * 26, 4, 99);
+
+  // Consistency (bonus): inverse spread of per-game accuracy.
+  const accs = (I.accTrend || []).map((t) => t.acc).filter((x) => x != null);
+  let consistency = 55;
+  if (accs.length >= 3) {
+    const m = accs.reduce((a, b) => a + b, 0) / accs.length;
+    const sd = Math.sqrt(accs.reduce((a, b) => a + (b - m) * (b - m), 0) / accs.length);
+    consistency = clamp(100 - sd * 2.4, 4, 99);
+  }
+
+  const dims = [
+    { key: 'tactics', name: 'Tactics', score: r0(tactics), blurb: 'Spotting shots and not hanging pieces.' },
+    { key: 'openings', name: 'Openings', score: r0(openings), blurb: 'Coming out of the opening in good shape.' },
+    { key: 'endgame', name: 'Endgame', score: r0(endgame), blurb: 'Technique when few pieces remain.' },
+    { key: 'advantage', name: 'Advantage capitalization', score: r0(advantage), blurb: 'Converting winning positions.' },
+    { key: 'resource', name: 'Resourcefulness', score: r0(resource), blurb: 'Fighting back from worse positions.' },
+    { key: 'time', name: 'Time management', score: r0(time), blurb: 'Using the clock to keep your quality up.' },
+    { key: 'consistency', name: 'Consistency', score: r0(consistency), blurb: 'Steady play, game to game.', bonus: true },
+  ];
+  // trend per dimension: compare recent vs older accuracy halves (proxy)
+  if (accs.length >= 6) {
+    const half = Math.floor(accs.length / 2);
+    const older = accs.slice(0, half), recent = accs.slice(half);
+    const delta = (recent.reduce((a, b) => a + b, 0) / recent.length) - (older.reduce((a, b) => a + b, 0) / older.length);
+    for (const d of dims) d.trend = Math.round(delta); // shared accuracy trend as a light signal
+  }
+  return dims;
+}
+
+export function superAndWeak(dims) {
+  const core = dims.filter((d) => !d.bonus);
+  const sorted = [...core].sort((a, b) => b.score - a.score);
+  return { superpower: sorted[0], weakness: sorted[sorted.length - 1] };
+}
+
+// Detect "tilt": a cluster of recent games well below the player's mean accuracy.
+function tiltDetected(I) {
+  const accs = (I.accTrend || []).map((t) => t.acc).filter((x) => x != null);
+  if (accs.length < 6) return false;
+  const m = accs.reduce((a, b) => a + b, 0) / accs.length;
+  const last4 = accs.slice(-4);
+  const lowLast4 = last4.filter((a) => a < m - 8).length >= 3;
+  return lowLast4 && (I.time.timeTroubleBlunders + I.time.rushedBlunders) >= 2;
+}
+
+// Build today's plan off the weakest dimension (+ openings + tilt).
+export function dailyPlan(dims, I, openings) {
+  const { superpower, weakness } = superAndWeak(dims);
+  const rest = tiltDetected(I);
+
+  // game prescription by weakness
+  let game;
+  if (weakness.key === 'time') game = 'Play 2–3 rapid games (15|10). Longer time controls let you practice clock discipline.';
+  else if (weakness.key === 'tactics') game = 'Play 2 rapid + a couple of blitz games — blitz drills pattern speed, rapid keeps quality up.';
+  else if (weakness.key === 'openings') {
+    const worst = (openings || []).filter((o) => o.games >= 2 && o.acc != null).sort((a, b) => a.scorePct - b.scorePct)[0];
+    game = worst ? `Play 2 games and steer toward the ${worst.family} (your weak spot — ${worst.scorePct}%).` : 'Play 2 rapid games, focusing on a clean opening.';
+  } else if (weakness.key === 'endgame') game = 'Play 2 rapid games and aim to reach (and grind out) the endgame.';
+  else game = 'Play 2–3 rapid games, focusing on your weakest area below.';
+
+  // study prescription by weakness
+  const STUDY = {
+    tactics: { theme: 'fork', text: 'Do 12–15 tactics puzzles weighted to hanging pieces and missed shots — drawn from your own games.' },
+    openings: { theme: 'opening', text: 'Run the Opening trainer on the lines where you slip, and study the first ~8 moves of one repertoire.' },
+    endgame: { theme: 'endgame', text: 'Drill 10 endgame puzzles — king & pawn, opposition, basic rook endings.' },
+    advantage: { theme: 'endgame', text: 'Replay 2–3 games you lost from a winning position and find where it slipped.' },
+    resource: { theme: 'fork', text: 'Practice defensive/counterattack puzzles — finding resources when worse.' },
+    time: { theme: 'fork', text: 'Do a Puzzle Storm to build fast, confident pattern recognition for time scrambles.' },
+    consistency: { theme: 'hangingPiece', text: 'Short daily set to raise your floor — 10 mixed puzzles, no marathon sessions.' },
+  };
+  const study = STUDY[weakness.key] || STUDY.tactics;
+
+  const trend = dims[0]?.trend;
+  const positive = trend != null && trend > 1
+    ? `Your accuracy is trending up (+${trend}% lately) — keep it going.`
+    : superpower ? `Your superpower is ${superpower.name.toLowerCase()} (${superpower.score}/100) — lean on it.` : '';
+
+  return {
+    rest,
+    focus: weakness,
+    superpower,
+    headline: rest
+      ? 'You look like you might be tilting — take a lighter day.'
+      : `Today: sharpen your ${weakness.name.toLowerCase()}.`,
+    positive,
+    game: rest ? 'Skip the grind today — one calm game at most. Rest is part of improving.' : game,
+    study: rest ? 'A short, easy puzzle set is fine — keep your streak without pushing.' : study.text,
+    studyTheme: study.theme,
+    sessionNote: 'Aim for a focused ~10–15 minute session — small and daily beats long and rare.',
+  };
+}
