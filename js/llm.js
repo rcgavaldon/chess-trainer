@@ -20,10 +20,11 @@ export function hasKey() {
 export async function commentMove({ apiKey, model = DEFAULT_MODEL, fen, color, playedSan, bestSan, label, winLoss, heuristic }) {
   if (!apiKey) return null;
   const system =
-    'You are a warm, encouraging chess coach explaining to a beginner. In ONE or TWO short sentences, explain WHY ' +
-    'their move is good or bad, using simple words a 3rd grader could understand. Always give the reason — what the ' +
-    'move does well, or what it misses or gives away — never just say "it is the best move." Avoid chess jargon; if ' +
-    'you must use a term, explain it in plain words. No long variations, no move lists, no restating the FEN, no fluff.';
+    'You are a warm, encouraging chess coach. In 2-4 clear sentences, explain in plain language (simple enough for a ' +
+    'beginner but genuinely insightful) WHY this move is good or bad: what it does well or what it gives away, what ' +
+    'the stronger idea was and WHY it is better (the plan or threat behind it), and one concrete thing to watch for ' +
+    'next time. Be specific to THIS position — name the squares/pieces involved. Avoid heavy jargon; if you use a ' +
+    'term, explain it briefly. No long computer variations, no restating the FEN, no filler.';
   const user =
     `Position FEN: ${fen}\n` +
     `${color} played ${playedSan}, graded "${label}"${winLoss ? ` (it dropped about ${winLoss}% win chance)` : ''}.\n` +
@@ -39,7 +40,7 @@ export async function commentMove({ apiKey, model = DEFAULT_MODEL, fen, color, p
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body: JSON.stringify({ model, max_tokens: 150, temperature: 0.4, system, messages: [{ role: 'user', content: user }] }),
+    body: JSON.stringify({ model, max_tokens: 320, temperature: 0.4, system, messages: [{ role: 'user', content: user }] }),
   });
   if (res.status === 401) throw new Error('Invalid Anthropic API key');
   if (res.status === 429) throw new Error('Rate limited — wait a moment and retry');

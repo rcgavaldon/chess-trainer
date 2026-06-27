@@ -1,5 +1,6 @@
 // app.js — bootstrap: shared engine, routing, settings.
 import * as store from './storage.js';
+import { h, clear } from './dom.js';
 import { createEngine } from './engine.js';
 import * as personal from './views/personal.js';
 import * as openings from './views/openings.js';
@@ -120,3 +121,45 @@ if (!store.storageAvailable()) {
 updateOwnerBadge();
 applyTheme(store.get('profile.accent', 'green'));
 store.onRouteChange(draw);
+if (!store.get('profile.username')) showOnboarding();
+
+// ---- first-run onboarding (saved on this device) ----
+function showOnboarding() {
+  const v = document.getElementById('view');
+  clear(v);
+  const field = (t, el) => h('label', { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', fontWeight: 500 } }, t, el);
+  const name = h('input', { type: 'text', placeholder: 'Your name (e.g. Robert)' });
+  const user = h('input', { type: 'text', placeholder: 'Your Chess.com username (e.g. rcgavaldon)', onkeydown: (e) => { if (e.key === 'Enter') go.click(); } });
+  const key = h('input', { type: 'password', placeholder: 'sk-ant-…  (optional — powers the AI coach)', autocomplete: 'off' });
+  let accent = store.get('profile.accent', 'green');
+  const accentWrap = h('div', { class: 'swatches' });
+  const keys = Object.keys(ACCENTS);
+  keys.forEach((k) => {
+    const a = ACCENTS[k];
+    const sw = h('div', { class: 'swatch' + (k === accent ? ' active' : ''), style: { background: `linear-gradient(180deg,${a.accent},${a.deep})` },
+      onclick: () => { accent = k; applyTheme(k); accentWrap.querySelectorAll('.swatch').forEach((s, i) => s.classList.toggle('active', keys[i] === k)); } });
+    accentWrap.append(sw);
+  });
+  const go = h('button', { class: 'btn', style: { marginTop: '6px', alignSelf: 'flex-start' }, onclick: () => {
+    const u = user.value.trim();
+    if (!u) { user.focus(); return; }
+    store.set('profile.ownerName', name.value.trim());
+    store.set('profile.username', u);
+    store.set('profile.accent', accent);
+    if (key.value.trim()) store.set('profile.llmKey', key.value.trim());
+    store.set('profile.onboarded', true);
+    updateOwnerBadge();
+    location.hash = '#/personal';
+    draw('personal');
+  } }, 'Get started →');
+  v.append(h('div', { class: 'card', style: { maxWidth: '470px', margin: '7vh auto', display: 'flex', flexDirection: 'column', gap: '14px' } },
+    h('div', { style: { fontSize: '23px', fontWeight: 800 } }, '♞ Welcome to your chess coach'),
+    h('div', { class: 'hint' }, 'Quick setup. It\'s saved right here on this device, so it\'ll remember you next time.'),
+    field('Your name', name),
+    field('Your Chess.com username', user),
+    field('Accent color', accentWrap),
+    field('Anthropic API key (optional)', key),
+    go,
+    h('div', { class: 'hint tiny' }, 'You can change any of this later in ⚙ Settings.'),
+  ));
+}
