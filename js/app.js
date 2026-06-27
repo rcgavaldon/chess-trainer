@@ -118,6 +118,15 @@ function draw(route) {
 if (!store.storageAvailable()) {
   showEngineStatus('Heads up: this browser is blocking storage (private mode?) — progress won\'t be saved.');
 }
+// Pre-configured link support: ?u=username&name=Robert&accent=green sets you up instantly.
+const _params = new URLSearchParams(location.search);
+if (_params.get('u')) {
+  store.set('profile.username', _params.get('u').trim());
+  if (_params.get('name')) store.set('profile.ownerName', _params.get('name').trim());
+  if (_params.get('accent')) store.set('profile.accent', _params.get('accent').trim());
+  store.set('profile.onboarded', true);
+}
+
 updateOwnerBadge();
 applyTheme(store.get('profile.accent', 'green'));
 store.onRouteChange(draw);
