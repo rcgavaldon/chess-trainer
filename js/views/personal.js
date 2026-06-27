@@ -451,6 +451,8 @@ function drawTrainingSection() {
   const profile = buildWeaknessProfile(analyses, userColor);
   S._profile = profile;
   persistSnapshot();
+  // persist focus areas so the Train tab can build a personalized daily set
+  store.set('train.focus', { themes: suggestedPuzzleThemes(profile), blunders: profile.blunders.slice(0, 8).map((b) => ({ fen: b.fen, theme: b.theme })), ts: Date.now() });
 
   clear(area).append(
     h('h2', {}, 'Weaknesses & training'),
