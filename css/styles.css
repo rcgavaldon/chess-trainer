@@ -230,6 +230,21 @@ dialog::backdrop { background: rgba(6, 9, 12, .65); backdrop-filter: blur(4px); 
 .chat-msg.coach { background: var(--elevated); align-self: flex-start; border-bottom-left-radius: 3px; }
 .chatbox .row input { border-radius: 9px; }
 
+/* ---- clean report ---- */
+.snapshot { display: flex; gap: 0; flex-wrap: wrap; padding: 8px 4px; }
+.snap { flex: 1 1 130px; padding: 6px 20px; border-right: 1px solid var(--line); }
+.snap:last-child { border-right: none; }
+.snap .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.snap .v { font-size: 27px; font-weight: 800; font-family: var(--mono); margin-top: 3px; letter-spacing: -1px; }
+.snap .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+@media (max-width: 640px) { .snap { flex: 1 1 45%; border-right: none; padding: 6px 12px; } .review[style] { grid-template-columns: 1fr !important; } }
+details.more { border-top: 1px solid var(--line); margin-top: 22px; }
+details.more > summary { cursor: pointer; padding: 14px 0; font-weight: 600; color: var(--muted); list-style: none; user-select: none; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: '▸ '; }
+details.more[open] > summary::before { content: '▾ '; }
+details.more > summary:hover { color: var(--text); }
+
 /* ---- toast / misc ---- */
 .engine-status { position: fixed; bottom: 18px; right: 18px; background: var(--elevated); border: 1px solid var(--line-strong);
   border-radius: 12px; padding: 11px 16px; font-size: 13px; box-shadow: var(--shadow-lg); z-index: 50; max-width: 320px; }

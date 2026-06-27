@@ -62,6 +62,41 @@ export function computeDimensions(I) {
   return dims;
 }
 
+// Plain-language "what's going well" + "what to work on" from the dimensions.
+const STRENGTH = {
+  tactics: 'You rarely hang pieces and you spot tactics.',
+  openings: 'You come out of the opening in good shape.',
+  endgame: 'Your endgame technique is solid.',
+  advantage: 'When you\'re winning, you bring it home.',
+  resource: 'You fight back well from worse positions.',
+  time: 'You manage your clock well and stay calm.',
+  consistency: 'You play at a steady level, game to game.',
+};
+const IMPROVE = {
+  tactics: { detail: 'Drill tactics daily and blunder-check every move before you play it.', theme: 'fork' },
+  openings: { detail: 'Tighten one opening for White and one vs 1.e4/1.d4 — learn the first ~8 moves.', theme: 'opening' },
+  endgame: { detail: 'Learn key endgames: king & pawn, opposition, and basic rook endings.', theme: 'endgame' },
+  advantage: { detail: 'When ahead, simplify and check threats — stop letting won games slip.', theme: 'endgame' },
+  resource: { detail: 'Practice defensive resources — keep setting problems when you\'re worse.', theme: 'fork' },
+  time: { detail: 'Bank time early and slow down on the critical moves to avoid time-trouble blunders.', theme: 'fork' },
+  consistency: { detail: 'Shorter, focused sessions raise your floor — avoid long tilting streaks.', theme: 'hangingPiece' },
+};
+
+export function narratives(dims, trendDelta) {
+  const core = dims.filter((d) => !d.bonus).sort((a, b) => b.score - a.score);
+  const goingWell = [];
+  for (const d of core) { if (d.score >= 58 && goingWell.length < 3) goingWell.push({ title: d.name, detail: STRENGTH[d.key] || '' }); }
+  if (!goingWell.length) goingWell.push({ title: core[0].name, detail: (STRENGTH[core[0].key] || '') + ' (your relative strength).' });
+  if (trendDelta != null && trendDelta >= 2) goingWell.unshift({ title: 'Improving', detail: `Your accuracy is up about ${Math.round(trendDelta)}% lately — keep it going.` });
+
+  const toImprove = [];
+  for (let i = core.length - 1; i >= 0 && toImprove.length < 3; i--) {
+    const d = core[i];
+    if (d.score <= 55 || toImprove.length < 2) { const m = IMPROVE[d.key]; toImprove.push({ title: d.name, detail: m.detail, theme: m.theme, score: d.score }); }
+  }
+  return { goingWell: goingWell.slice(0, 3), toImprove };
+}
+
 export function superAndWeak(dims) {
   const core = dims.filter((d) => !d.bonus);
   const sorted = [...core].sort((a, b) => b.score - a.score);

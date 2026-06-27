@@ -35,9 +35,10 @@ function drawHome() {
   const streak = store.get('train.streak', { count: 0 });
   const done = dailyDoneToday();
   const focus = store.get('train.focus', null);
+  const plan = store.get('train.plan', null);
   const focusNote = focus && focus.themes && focus.themes.length
     ? `Weighted to your weak spots (${focus.themes.slice(0, 2).map(themeLabelShort).join(', ')}) plus a couple from your own games.`
-    : 'Run a deep scan in Personal first so I can target your weak spots — until then it\'s a balanced mix.';
+    : 'Open the Personal tab once so I can scan your games and target your weak spots — until then it\'s a balanced mix.';
   host.append(
     h('h1', {}, 'Train'),
     h('p', { class: 'hint' }, 'Sharpen your tactics. A daily set built for you, Puzzle Storm for speed, focused drills for the patterns you miss.'),
@@ -45,7 +46,8 @@ function drawHome() {
       h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'flex-start' } },
         h('div', { style: { flex: 1 } },
           h('div', { style: { fontSize: '18px', fontWeight: 800 } }, '📅 Today\'s training'),
-          h('div', { class: 'hint', style: { marginTop: '4px' } }, done ? 'Done for today — nice work. Come back tomorrow to keep your streak.' : focusNote)),
+          plan && plan.focus ? h('div', { style: { marginTop: '4px', fontWeight: 600, color: 'var(--accent-2)' } }, `Your coach says: focus on ${plan.focus.toLowerCase()}`) : null,
+          h('div', { class: 'hint', style: { marginTop: '4px' } }, done ? 'Done for today — nice work. Come back tomorrow to keep your streak.' : (plan && plan.study ? plan.study : focusNote))),
         h('div', { style: { textAlign: 'right' } }, h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '20px' } }, '🔥 ' + (streak.count || 0)), h('div', { class: 'hint tiny' }, 'day streak'))),
       h('button', { class: 'btn', style: { marginTop: '12px' }, disabled: done, onclick: startDaily }, done ? '✓ Completed today' : 'Start today\'s training (12 puzzles)')),
     h('div', { class: 'section', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: '14px' } },

@@ -4,6 +4,79 @@ import { h, clear, pct } from './dom.js';
 
 const accColor = (a) => (a == null ? 'var(--muted)' : a >= 85 ? 'var(--good)' : a >= 70 ? 'var(--warn)' : 'var(--bad)');
 
+// ============================================================
+// CLEAN REPORT — snapshot + radar + going-well/to-improve + trend graph
+// ============================================================
+const SHORT = { Tactics: 'Tactics', Openings: 'Openings', Endgame: 'Endgame', 'Advantage capitalization': 'Converting', Resourcefulness: 'Defense', 'Time management': 'Time' };
+const winPctOf = (r) => { const g = r.w + r.l + r.d; return g ? Math.round(((r.w + r.d * 0.5) / g) * 100) : 0; };
+const bestDim = (dims) => dims.filter((d) => !d.bonus).sort((a, b) => b.score - a.score)[0];
+const worstDim = (dims) => dims.filter((d) => !d.bonus).sort((a, b) => a.score - b.score)[0];
+
+function radarSvg(dims) {
+  const core = dims.filter((d) => !d.bonus).slice(0, 6);
+  const n = core.length, cx = 140, cy = 140, R = 100;
+  const ang = (i) => (-90 + i * (360 / n)) * Math.PI / 180;
+  const pt = (val, i) => [cx + Math.cos(ang(i)) * R * val / 100, cy + Math.sin(ang(i)) * R * val / 100];
+  const ring = (r) => core.map((_, i) => pt(r, i).map((v) => v.toFixed(1)).join(',')).join(' ');
+  const poly = core.map((d, i) => pt(d.score, i).map((v) => v.toFixed(1)).join(',')).join(' ');
+  const grid = [40, 70, 100].map((r) => `<polygon points="${ring(r)}" fill="none" stroke="#ffffff12" stroke-width="0.7"/>`).join('');
+  const axes = core.map((_, i) => { const [x, y] = pt(100, i); return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#ffffff12" stroke-width="0.7"/>`; }).join('');
+  const dots = core.map((d, i) => { const [x, y] = pt(d.score, i); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="var(--accent)"/>`; }).join('');
+  const labels = core.map((d, i) => { const [x, y] = pt(123, i); const a = Math.abs(x - cx) < 12 ? 'middle' : (x > cx ? 'start' : 'end'); return `<text x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" fill="#9aa7b1" font-size="10.5" font-weight="600" text-anchor="${a}">${SHORT[d.name] || d.name}</text>`; }).join('');
+  return `<svg viewBox="0 0 280 270" width="100%" style="max-width:330px;display:block;margin:4px auto 0">${grid}${axes}<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.18" stroke="var(--accent)" stroke-width="1.6"/>${dots}${labels}</svg>`;
+}
+
+function trendSvg(trend) {
+  const data = (trend || []).map((t) => t.acc).filter((x) => x != null);
+  if (data.length < 3) return '<div class="hint tiny">Analyze a few more games to see your trend.</div>';
+  const W = 600, H = 130, pad = 10, n = data.length;
+  const x = (i) => pad + (i * (W - 2 * pad)) / (n - 1);
+  const y = (v) => H - pad - (v / 100) * (H - 2 * pad);
+  const line = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const avg = data.reduce((a, b) => a + b, 0) / n;
+  const last10 = Math.max(0, n - 10);
+  const dots = trend.slice(0, n).map((t, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(data[i]).toFixed(1)}" r="2.2" fill="${t.result === 'win' ? '#5fc46a' : t.result === 'loss' ? '#f0625b' : '#93a1ab'}"/>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+    <rect x="${x(last10).toFixed(1)}" y="0" width="${(W - x(last10)).toFixed(1)}" height="${H}" fill="#ffffff09"/>
+    <line x1="0" y1="${y(avg).toFixed(1)}" x2="${W}" y2="${y(avg).toFixed(1)}" stroke="#ffffff22" stroke-width="0.6" stroke-dasharray="4 4"/>
+    <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linejoin="round"/>${dots}</svg>`;
+}
+
+const snap = (k, v, sub) => h('div', { class: 'snap' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v), sub != null ? h('div', { class: 'sub' }, sub) : null);
+
+function narrCard(title, color, items, onTrain) {
+  return h('div', { class: 'card' }, h('div', { style: { fontWeight: 700, color, marginBottom: '12px', fontSize: '15px' } }, title),
+    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, ...items.map((it) =>
+      h('div', {}, h('div', { style: { fontWeight: 600 } }, it.title), it.detail ? h('div', { class: 'hint', style: { fontSize: '13px', marginTop: '2px' } }, it.detail) : null,
+        onTrain && it.theme ? h('button', { class: 'btn small ghost', style: { marginTop: '7px' }, onclick: () => onTrain(it.theme) }, 'Train this') : null))));
+}
+
+// R = { rating, record, last10, accAvg, accDelta, dims, narr, accTrend, onTrain }
+export function renderCleanReport(host, R) {
+  const arrowColor = R.accDelta >= 2 ? 'var(--good)' : R.accDelta <= -2 ? 'var(--bad)' : 'var(--muted)';
+  host.append(h('div', { class: 'card section snapshot' },
+    snap('Rating', R.rating ?? '—'),
+    snap('Last 50', `${R.record.w}-${R.record.l}-${R.record.d}`, `${winPctOf(R.record)}% score`),
+    snap('Accuracy', R.accAvg != null ? h('span', { style: { color: accColor(R.accAvg) } }, pct(R.accAvg)) : '—', h('span', { style: { color: arrowColor } }, R.accDelta ? `${R.accDelta > 0 ? '+' : ''}${Math.round(R.accDelta)}% last 10` : 'steady')),
+    snap('Last 10', R.last10 ? `${R.last10.w}-${R.last10.l}-${R.last10.d}` : '—', R.last10 ? `${winPctOf(R.last10)}% score` : '')));
+
+  host.append(h('div', { class: 'card section' },
+    h('h2', {}, 'Your skills at a glance'),
+    h('div', { html: radarSvg(R.dims) }),
+    h('div', { class: 'chip-row', style: { justifyContent: 'center', marginTop: '6px' } },
+      h('span', { class: 'pill', style: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } }, '★ ' + bestDim(R.dims).name),
+      h('span', { class: 'pill', style: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' } }, '⚑ ' + worstDim(R.dims).name))));
+
+  host.append(h('div', { class: 'review section', style: { gridTemplateColumns: '1fr 1fr', gap: '14px' } },
+    narrCard('✅ What\'s going well', 'var(--good)', R.narr.goingWell, null),
+    narrCard('🎯 What to work on', 'var(--warn)', R.narr.toImprove, R.onTrain)));
+
+  host.append(h('div', { class: 'card section' },
+    h('h2', {}, 'Accuracy trend'),
+    h('div', { html: trendSvg(R.accTrend) }),
+    h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Each dot is a game — green win, red loss. Shaded band = your last 10.')));
+}
+
 function stat(k, v, sub) {
   return h('div', { class: 'stat' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v ?? '—'), sub ? h('div', { class: 'hint tiny' }, sub) : null);
 }

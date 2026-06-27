@@ -6,8 +6,8 @@ import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
 import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnapshot } from '../review.js';
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
-import { computeDimensions, dailyPlan } from '../report.js';
-import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan } from '../insightsview.js';
+import { computeDimensions, dailyPlan, narratives } from '../report.js';
+import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
 import { mountChat } from '../chatcoach.js';
@@ -31,9 +31,10 @@ export function render(container, ctx) {
   host = container;
   const p = store.get('profile', {});
   S.username = pendingImport || S.username || p.username || '';
-  S.timeClass = S.timeClass || 'all';
+  S.timeClass = 'all';
   drawHome();
-  if (pendingImport) { pendingImport = null; doImport(); }
+  if (pendingImport) { pendingImport = null; S._autoScanned = false; doImport(); }
+  else if (S.username && !S.games.length) { doImport(); } // auto-load on open
 }
 
 function depth() { return store.get('profile.engineDepth', 14); }
@@ -50,16 +51,129 @@ function drawHome() {
   clear(host);
   const owner = store.get('profile.ownerName', '');
   host.append(
-    h('h1', {}, owner ? `${owner}'s training` : 'Personal growth'),
-    h('p', { class: 'hint' }, 'Import your Chess.com games, review any game move-by-move with engine grades and plain-English explanations, deep-scan to see exactly how to improve and how you stack up against stronger players, then train the patterns you miss most.'),
-    controlsBar(),
-    h('div', { id: 'game-area', class: 'section' },
-      S.games.length ? gameListEl() : h('div', { class: 'empty' }, 'Enter a username and import games to begin.')),
-    h('div', { id: 'improve-area', class: 'section' }),
-    h('div', { id: 'train-area', class: 'section' }),
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
+      h('h1', {}, owner ? `${owner}'s coach` : 'Your coach'),
+      S.games.length ? h('div', { class: 'hint tiny' }, `Last ${S.games.length} games · `, h('a', { href: 'javascript:void 0', onclick: () => reSync() }, 'refresh')) : null),
+    h('div', { id: 'report-area', class: 'section' }),
   );
-  if (S.games.length) drawImprove();
-  if (Object.keys(S.analyses).length) drawTrainingSection();
+  const area = document.getElementById('report-area');
+  if (!S.username) { area.append(usernamePrompt()); return; }
+  if (S.games.length) drawReport();
+  else area.append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your last 50 games…'));
+}
+
+function reSync() { S.games = []; S._autoScanned = false; doImport(); }
+
+function usernamePrompt() {
+  const inp = h('input', { type: 'text', placeholder: 'Your Chess.com username', style: { maxWidth: '260px' }, onkeydown: (e) => { if (e.key === 'Enter') go(); } });
+  const go = () => { const u = inp.value.trim(); if (!u) return; S.username = u; store.set('profile.username', u); doImport(); };
+  return h('div', { class: 'card' }, h('div', { style: { fontWeight: 600, marginBottom: '8px' } }, 'Enter your Chess.com username to begin'), h('div', { class: 'row' }, inp, h('button', { class: 'btn', onclick: go }, 'Go')));
+}
+
+function recordOf(games) { const r = { w: 0, l: 0, d: 0 }; for (const g of games) { if (g.userResult === 'win') r.w++; else if (g.userResult === 'loss') r.l++; else r.d++; } return r; }
+function last10Delta(I) {
+  const accs = (I.accTrend || []).map((t) => t.acc).filter((x) => x != null);
+  if (accs.length < 6) return 0;
+  const recent = accs.slice(-10);
+  const ra = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const oa = accs.reduce((a, b) => a + b, 0) / accs.length;
+  return ra - oa;
+}
+
+async function drawReport() {
+  const area = document.getElementById('report-area');
+  clear(area);
+  const u = S.username.toLowerCase();
+  const myGames = S.games.filter((g) => (g.username || '').toLowerCase() === u);
+  let analyses = currentAnalyses();
+
+  // first-time: auto-analyze a batch so the report is real (cached → instant next time)
+  if (!analyses.length && !S._autoScanned) {
+    S._autoScanned = true;
+    await deepScanInto(area, Math.min(12, myGames.length));
+    analyses = currentAnalyses();
+  }
+  clear(area);
+
+  const record = recordOf(myGames);
+  const last10rec = recordOf(myGames.slice(0, 10));
+
+  if (analyses.length) {
+    const I = computeInsights(analyses, S.username);
+    const dims = computeDimensions(I);
+    const accDelta = last10Delta(I);
+    const today = dailyPlan(dims, I, I.openings);
+    const narr = narratives(dims, accDelta);
+    persistFocus(analyses, today);
+    renderCleanReport(area, {
+      rating: I.ratingAvg || myGames[0]?.userRating, record, last10: last10rec,
+      accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
+      onTrain: () => CTX.navigate('train'),
+    });
+    area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2), var(--shadow-sm)' } },
+      h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, today.rest ? '😌 Take a lighter day' : '🎯 Today\'s plan'),
+      h('div', { class: 'hint' }, today.game),
+      h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: () => CTX.navigate('train') }, 'Go to training →')));
+  } else {
+    area.append(h('div', { class: 'card section snapshot' },
+      h('div', { class: 'snap' }, h('div', { class: 'k' }, 'Last 50'), h('div', { class: 'v' }, `${record.w}-${record.l}-${record.d}`)),
+      h('div', { class: 'snap' }, h('div', { class: 'k' }, 'Last 10'), h('div', { class: 'v' }, `${last10rec.w}-${last10rec.l}-${last10rec.d}`))),
+      h('div', { class: 'hint section' }, 'Couldn\'t analyze your games right now — hit refresh to try again.'));
+  }
+
+  area.append(gamesDetails(), breakdownDetails(analyses, myGames));
+}
+
+async function deepScanInto(area, n) {
+  const targets = S.games.slice(0, n);
+  const bar = h('div', { class: 'bar' });
+  const msg = h('span', {}, 'Analyzing your games…');
+  clear(area).append(h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('span', { class: 'spinner' }), msg),
+    h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'First-time setup — building your report from your games. It\'s saved, so next time is instant.'),
+    h('div', { class: 'progress' }, bar)));
+  const engine = await CTX.ensureEngine();
+  const d = depth();
+  let done = 0;
+  for (const g of targets) {
+    g.username = S.username;
+    if (!S.analyses[g.url]) {
+      msg.textContent = `Analyzing game ${done + 1} of ${targets.length}…`;
+      try { S.analyses[g.url] = await analyzeGame(g, engine, { depth: d, multipv: 2, onProgress: (p) => { bar.style.width = ((done + p.done / p.total) / targets.length) * 100 + '%'; } }); } catch {}
+    }
+    done++;
+    bar.style.width = (done / targets.length) * 100 + '%';
+  }
+}
+
+function persistFocus(analyses, today) {
+  const profile = buildWeaknessProfile(analyses, analyses[0]?.userColor);
+  store.set('train.focus', { themes: suggestedPuzzleThemes(profile), blunders: profile.blunders.slice(0, 8).map((b) => ({ fen: b.fen, theme: b.theme })), ts: Date.now() });
+  store.set('train.plan', { game: today.game, study: today.study, headline: today.headline, rest: today.rest, focus: today.focus?.name });
+}
+
+function gamesDetails() {
+  const d = h('details', { class: 'more' }, h('summary', {}, `Review a game (${S.games.length})`));
+  d.addEventListener('toggle', () => { if (d.open && !d._rendered) { d._rendered = true; d.append(gameListEl()); } });
+  return d;
+}
+
+function breakdownDetails(analyses, myGames) {
+  const d = h('details', { class: 'more' }, h('summary', {}, 'Full breakdown — all the numbers'));
+  const body = h('div', {});
+  d.append(body);
+  d.addEventListener('toggle', () => {
+    if (!d.open || d._rendered) return;
+    d._rendered = true;
+    renderByTimeControl(body, byTimeControl(myGames, analyses));
+    if (analyses.length) {
+      const I = computeInsights(analyses, S.username);
+      const rating = I.ratingAvg;
+      const peer = BENCHMARKS && rating ? comparePeers(I, rating, BENCHMARKS) : null;
+      renderImprove(body, { insights: I, peer, plan: improvementPlan(I, peer), byTC: null, onTrain: () => CTX.navigate('train') });
+    }
+  });
+  return d;
 }
 
 // ---------------- deep scan + improve dashboard ----------------
@@ -173,24 +287,19 @@ function controlsBar() {
 }
 
 async function doImport() {
-  const username = controlsBar._user.value.trim();
-  const timeClass = controlsBar._tc.value;
+  const username = (S.username || '').trim();
   if (!username) return;
-  S.username = username; S.timeClass = timeClass;
-  store.set('profile.username', username); store.set('profile.timeClass', timeClass);
-  const area = document.getElementById('game-area');
-  clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Fetching recent games…'));
-  controlsBar._btn.disabled = true;
+  store.set('profile.username', username);
+  const area = document.getElementById('report-area');
+  if (area) clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your last 50 games…'));
   try {
-    const games = await cc.fetchRecentGames(username, { months: 8, timeClass, limit: 50 });
+    const games = await cc.fetchRecentGames(username, { months: 8, timeClass: 'all', limit: 50 });
     games.forEach((g) => (g.username = username));
     S.games = games;
     if (games.length) { await preloadCached(); drawHome(); }
-    else clear(area).append(h('div', { class: 'empty' }, `No ${timeClass} games found for “${username}”.`));
+    else if (area) clear(area).append(h('div', { class: 'empty' }, `No games found for “${username}”.`));
   } catch (e) {
-    clear(area).append(h('div', { class: 'empty' }, 'Could not fetch games. ', h('span', { class: 'tiny' }, e.message)));
-  } finally {
-    controlsBar._btn.disabled = false;
+    if (area) clear(area).append(h('div', { class: 'empty' }, 'Could not load games. ', h('span', { class: 'tiny' }, e.message)));
   }
 }
 
