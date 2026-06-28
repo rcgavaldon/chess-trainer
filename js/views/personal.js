@@ -18,7 +18,7 @@ import {
   recordAttempt, difficultyForTheme, loadThemeShard,
 } from '../puzzles.js';
 
-const S = { username: '', timeClass: 'all', games: [], analyses: {} }; // analyses keyed by game.url
+const S = { username: '', timeClass: null, games: [], analyses: {} }; // analyses keyed by game.url; timeClass null = auto-pick primary
 let CTX = null;
 let host = null; // main container
 let pendingImport = null;
@@ -31,7 +31,6 @@ export function render(container, ctx) {
   host = container;
   const p = store.get('profile', {});
   S.username = pendingImport || S.username || p.username || '';
-  S.timeClass = 'all';
   drawHome();
   if (pendingImport) { pendingImport = null; S._autoScanned = false; doImport(); }
   else if (S.username && !S.games.length) { doImport(); } // auto-load on open
@@ -101,20 +100,51 @@ function last10Delta(I) {
   return ra - oa;
 }
 
+const TC_LABEL = { rapid: 'Rapid', blitz: 'Blitz', bullet: 'Bullet', daily: 'Daily', all: 'All' };
+
+function primaryTC(games) {
+  const c = {}; for (const g of games) c[g.timeClass] = (c[g.timeClass] || 0) + 1;
+  const e = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return e ? e[0] : 'all';
+}
+
+function scopeAnalyses(myGames) {
+  const urls = new Set(myGames.map((g) => g.url));
+  return currentAnalyses().filter((a) => urls.has(a.game?.url));
+}
+
+function tcSwitcher(allMine, scope) {
+  const counts = {}; for (const g of allMine) counts[g.timeClass] = (counts[g.timeClass] || 0) + 1;
+  const tcs = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const row = h('div', { class: 'chip-row' });
+  for (const t of [...tcs, 'all']) {
+    row.append(h('button', { class: 'chip' + (scope === t ? ' active-chip' : ''), onclick: () => { S.timeClass = t; drawReport(); } },
+      t === 'all' ? `All (${allMine.length})` : `${TC_LABEL[t] || t} (${counts[t]})`));
+  }
+  return h('div', { class: 'section' },
+    h('div', { class: 'hint tiny', style: { marginBottom: '6px', fontWeight: 600 } }, 'Time control — rapid, blitz and daily are really different games, so your report is scoped to one at a time:'),
+    row);
+}
+
 async function drawReport() {
   const area = document.getElementById('report-area');
   clear(area);
   const u = S.username.toLowerCase();
-  const myGames = S.games.filter((g) => (g.username || '').toLowerCase() === u);
-  let analyses = currentAnalyses();
+  const allMine = S.games.filter((g) => (g.username || '').toLowerCase() === u);
+  const scope = S.timeClass || primaryTC(allMine);
+  S.timeClass = scope;
+  const myGames = scope === 'all' ? allMine : allMine.filter((g) => g.timeClass === scope);
+  const scopeName = TC_LABEL[scope] || scope;
 
-  // first-time: auto-analyze a batch so the report is real (cached → instant next time)
-  if (!analyses.length && !S._autoScanned) {
+  // first-time: auto-analyze a batch of the SCOPED games so the report is real & on-topic
+  let analyses = scopeAnalyses(myGames);
+  if (!analyses.length && !S._autoScanned && myGames.length) {
     S._autoScanned = true;
-    await deepScanInto(area, Math.min(12, myGames.length));
-    analyses = currentAnalyses();
+    await deepScanInto(area, myGames, Math.min(12, myGames.length));
+    analyses = scopeAnalyses(myGames);
   }
   clear(area);
+  area.append(tcSwitcher(allMine, scope));
 
   const record = recordOf(myGames);
   const last10rec = recordOf(myGames.slice(0, 10));
@@ -127,26 +157,27 @@ async function drawReport() {
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
     renderCleanReport(area, {
-      rating: I.ratingAvg || myGames[0]?.userRating, record, last10: last10rec,
-      accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
+      rating: I.ratingAvg || myGames[0]?.userRating, scope: scope === 'all' ? null : scopeName,
+      record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
       onTrain: () => CTX.navigate('train'),
     });
     area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2), var(--shadow-sm)' } },
       h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, today.rest ? '😌 Take a lighter day' : '🎯 Today\'s plan'),
       h('div', { class: 'hint' }, today.game),
       h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: () => CTX.navigate('train') }, 'Go to training →')));
+  } else if (myGames.length) {
+    area.append(h('div', { class: 'card section' },
+      h('div', { class: 'hint' }, `${myGames.length} ${scopeName} game${myGames.length > 1 ? 's' : ''} loaded — none analyzed yet. Record so far: ${record.w}-${record.l}-${record.d}.`),
+      h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: async () => { await deepScanInto(document.getElementById('report-area'), myGames, Math.min(12, myGames.length)); drawReport(); } }, `Analyze my ${scopeName} games`)));
   } else {
-    area.append(h('div', { class: 'card section snapshot' },
-      h('div', { class: 'snap' }, h('div', { class: 'k' }, 'Last 50'), h('div', { class: 'v' }, `${record.w}-${record.l}-${record.d}`)),
-      h('div', { class: 'snap' }, h('div', { class: 'k' }, 'Last 10'), h('div', { class: 'v' }, `${last10rec.w}-${last10rec.l}-${last10rec.d}`))),
-      h('div', { class: 'hint section' }, 'Couldn\'t analyze your games right now — hit refresh to try again.'));
+    area.append(h('div', { class: 'hint section' }, 'No games in this time control yet.'));
   }
 
   area.append(gamesDetails(), breakdownDetails(analyses, myGames));
 }
 
-async function deepScanInto(area, n) {
-  const targets = S.games.slice(0, n);
+async function deepScanInto(area, games, n) {
+  const targets = games.slice(0, n);
   const bar = h('div', { class: 'bar' });
   const msg = h('span', {}, 'Analyzing your games…');
   clear(area).append(h('div', { class: 'card' },
@@ -317,6 +348,7 @@ async function doImport() {
     const games = await cc.fetchRecentGames(username, { months: 8, timeClass: 'all', limit: 50 });
     games.forEach((g) => (g.username = username));
     S.games = games;
+    S.timeClass = null; // re-pick the primary time control for this player
     if (games.length) { await preloadCached(); drawHome(); }
     else if (area) clear(area).append(h('div', { class: 'empty' }, `No games found for “${username}”.`));
   } catch (e) {

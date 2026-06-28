@@ -14,16 +14,17 @@ const worstDim = (dims) => dims.filter((d) => !d.bonus).sort((a, b) => a.score -
 
 function radarSvg(dims) {
   const core = dims.filter((d) => !d.bonus).slice(0, 6);
-  const n = core.length, cx = 140, cy = 140, R = 100;
+  const n = core.length, cx = 175, cy = 128, R = 90;
   const ang = (i) => (-90 + i * (360 / n)) * Math.PI / 180;
   const pt = (val, i) => [cx + Math.cos(ang(i)) * R * val / 100, cy + Math.sin(ang(i)) * R * val / 100];
   const ring = (r) => core.map((_, i) => pt(r, i).map((v) => v.toFixed(1)).join(',')).join(' ');
   const poly = core.map((d, i) => pt(d.score, i).map((v) => v.toFixed(1)).join(',')).join(' ');
-  const grid = [40, 70, 100].map((r) => `<polygon points="${ring(r)}" fill="none" stroke="#ffffff12" stroke-width="0.7"/>`).join('');
-  const axes = core.map((_, i) => { const [x, y] = pt(100, i); return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#ffffff12" stroke-width="0.7"/>`; }).join('');
-  const dots = core.map((d, i) => { const [x, y] = pt(d.score, i); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="var(--accent)"/>`; }).join('');
-  const labels = core.map((d, i) => { const [x, y] = pt(123, i); const a = Math.abs(x - cx) < 12 ? 'middle' : (x > cx ? 'start' : 'end'); return `<text x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" fill="#9aa7b1" font-size="10.5" font-weight="600" text-anchor="${a}">${SHORT[d.name] || d.name}</text>`; }).join('');
-  return `<svg viewBox="0 0 280 270" width="100%" style="max-width:330px;display:block;margin:4px auto 0">${grid}${axes}<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.18" stroke="var(--accent)" stroke-width="1.6"/>${dots}${labels}</svg>`;
+  const grid = [33, 66, 100].map((r) => `<polygon points="${ring(r)}" fill="none" stroke="#ffffff14" stroke-width="0.7"/>`).join('');
+  const axes = core.map((_, i) => { const [x, y] = pt(100, i); return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#ffffff14" stroke-width="0.7"/>`; }).join('');
+  const dots = core.map((d, i) => { const [x, y] = pt(d.score, i); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" fill="var(--accent)"/>`; }).join('');
+  const valLabels = core.map((d, i) => { const [x, y] = pt(Math.max(d.score, 14), i); return `<text x="${x.toFixed(1)}" y="${(y - 6).toFixed(1)}" fill="var(--accent)" font-size="10" font-weight="700" text-anchor="middle">${d.score}</text>`; }).join('');
+  const labels = core.map((d, i) => { const [x, y] = pt(118, i); const a = Math.abs(x - cx) < 16 ? 'middle' : (x > cx ? 'start' : 'end'); return `<text x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" fill="#9aa7b1" font-size="11" font-weight="600" text-anchor="${a}">${SHORT[d.name] || d.name}</text>`; }).join('');
+  return `<svg viewBox="0 0 350 248" width="100%" style="max-width:440px;display:block;margin:2px auto 0">${grid}${axes}<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.18" stroke="var(--accent)" stroke-width="1.8"/>${dots}${valLabels}${labels}</svg>`;
 }
 
 function trendSvg(trend) {
@@ -54,18 +55,21 @@ function narrCard(title, color, items, onTrain) {
 // R = { rating, record, last10, accAvg, accDelta, dims, narr, accTrend, onTrain }
 export function renderCleanReport(host, R) {
   const arrowColor = R.accDelta >= 2 ? 'var(--good)' : R.accDelta <= -2 ? 'var(--bad)' : 'var(--muted)';
+  const nGames = R.record.w + R.record.l + R.record.d;
   host.append(h('div', { class: 'card section snapshot' },
-    snap('Rating', R.rating ?? '—'),
-    snap('Last 50', `${R.record.w}-${R.record.l}-${R.record.d}`, `${winPctOf(R.record)}% score`),
+    snap('Rating', R.rating ?? '—', R.scope || null),
+    snap('Record', `${R.record.w}-${R.record.l}-${R.record.d}`, `${winPctOf(R.record)}% over ${nGames}`),
     snap('Accuracy', R.accAvg != null ? h('span', { style: { color: accColor(R.accAvg) } }, pct(R.accAvg)) : '—', h('span', { style: { color: arrowColor } }, R.accDelta ? `${R.accDelta > 0 ? '+' : ''}${Math.round(R.accDelta)}% last 10` : 'steady')),
     snap('Last 10', R.last10 ? `${R.last10.w}-${R.last10.l}-${R.last10.d}` : '—', R.last10 ? `${winPctOf(R.last10)}% score` : '')));
 
+  const best = bestDim(R.dims), weak = worstDim(R.dims);
   host.append(h('div', { class: 'card section' },
     h('h2', {}, 'Your skills at a glance'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '2px' } }, 'Six core skills, each scored 0–100 from your own games. The further a point reaches the rim, the stronger that skill. The dented-in spoke is where you\'ll gain the most.'),
     h('div', { html: radarSvg(R.dims) }),
-    h('div', { class: 'chip-row', style: { justifyContent: 'center', marginTop: '6px' } },
-      h('span', { class: 'pill', style: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } }, '★ ' + bestDim(R.dims).name),
-      h('span', { class: 'pill', style: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' } }, '⚑ ' + worstDim(R.dims).name))));
+    h('div', { class: 'chip-row', style: { justifyContent: 'center', marginTop: '4px' } },
+      h('span', { class: 'pill', style: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } }, `★ Strongest: ${best.name} ${best.score}`),
+      h('span', { class: 'pill', style: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' } }, `⚑ Work on: ${weak.name} ${weak.score}`))));
 
   host.append(h('div', { class: 'review section', style: { gridTemplateColumns: '1fr 1fr', gap: '14px' } },
     narrCard('✅ What\'s going well', 'var(--good)', R.narr.goingWell, null),
