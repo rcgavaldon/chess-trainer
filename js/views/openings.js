@@ -219,7 +219,7 @@ function whyOptions(correctKey) {
   return shuffleA([{ text: IDEAS[correctKey], correct: true }, ...others.slice(0, 2).map((k) => ({ text: IDEAS[k], correct: false }))]);
 }
 
-const GD = { opening: null, moves: [], fens: [], ply: 0, score: 0, ground: null, answered: false, orient: 'white' };
+const GD = { opening: null, moves: [], fens: [], ply: 0, chess: null, correct: 0, total: 0, busy: false, ground: null, orient: 'white' };
 
 async function openGuided(opening) {
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Building your opening lesson…'));
@@ -243,50 +243,77 @@ function renderGuided() {
   clear(host);
   host.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between' } },
-      h('button', { class: 'btn ghost small', onclick: draw }, '← Openings'),
+      h('button', { class: 'btn ghost small', onclick: renderStudy }, '← Variations'),
       h('button', { class: 'btn ghost small', onclick: () => openExplorer(GD.opening), title: 'Browse all the lines instead' }, 'Browse lines')),
     h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, `📖 ${GD.opening.name}`),
-    h('div', { class: 'hint tiny' }, `Move ${GD.ply + 1} of ${GD.moves.length} · learn the idea behind each move`));
+    h('div', { class: 'hint tiny' }, `You're ${GD.orient === 'white' ? 'White ♔' : 'Black ♚'} — play the book moves on the board. I'll explain the idea behind each one.`));
   const boardEl = h('div', { id: 'gd-board' });
-  const panel = h('div', { class: 'trainer-side', id: 'gd-panel' });
+  const coach = h('div', { class: 'explain-box', id: 'gd-coach', style: { minHeight: '92px' } });
+  const prog = h('div', { id: 'gd-prog', class: 'card', style: { marginTop: '10px' } });
   host.append(h('div', { class: 'trainer-grid section' },
-    h('div', { class: 'trainer-coach' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, '♟ Coach'), h('div', { class: 'explain-box', id: 'gd-coach' })),
+    h('div', { class: 'trainer-coach' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, '♟ Coach'), coach, prog),
     h('div', { class: 'board-wrap trainer-board' }, boardEl),
-    panel));
-  GD.ground = createBoard(boardEl, { viewOnly: true, fen: GD.fens[GD.ply], coordinates: true, orientation: GD.orient });
-  GD.answered = false;
-  askWhy();
+    h('div', { class: 'trainer-side' })));
+  GD.chess = new Chess(); GD.ply = 0; GD.correct = 0; GD.total = 0; GD.busy = false;
+  GD.ground = createBoard(boardEl, { fen: GD.chess.fen(), orientation: GD.orient, movable: { free: false, color: undefined, dests: new Map() } });
+  guidedAdvance();
 }
 
-function askWhy() {
-  const m = GD.moves[GD.ply];
-  const mover = m.color === 'w' ? 'White' : 'Black';
-  GD.ground.set({ fen: m.fenBefore });
-  document.getElementById('gd-coach').textContent = `${mover}'s move here is ${m.san}. It's the move — but do you know why?`;
-  const panel = document.getElementById('gd-panel'); clear(panel);
-  panel.append(h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '8px' } }, `Why ${m.san}?`));
-  const opts = whyOptions(classifyOpeningMove(m));
-  for (const o of opts) panel.append(h('button', { class: 'btn ghost', style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '8px', fontSize: '13px', whiteSpace: 'normal', lineHeight: '1.35' }, onclick: () => answerWhy(o, opts) }, o.text));
+const gdFenAfter = (fen, san) => { try { const c = new Chess(fen); c.move(san); return c.fen(); } catch { return fen; } };
+function gdCommentary(fenBefore, m) {
+  try { return explainMove({ fenBefore, fenAfter: gdFenAfter(fenBefore, m.san), move: m, label: 'Best', ply: GD.ply + 1, history: [], bestMoveUci: null }).text; }
+  catch { return IDEAS[classifyOpeningMove(m)]; }
+}
+function gdSetCoach(title, body, color) { const box = document.getElementById('gd-coach'); if (!box) return; clear(box).append(h('div', { style: { fontWeight: 700, color: color || 'var(--text)', marginBottom: '4px' } }, title), h('div', { class: 'hint', style: { fontSize: '13px' } }, body)); }
+function gdSetBoard(movable) {
+  const last = GD.chess.history({ verbose: true }).slice(-1)[0];
+  GD.ground.set({ fen: GD.chess.fen(), turnColor: GD.chess.turn() === 'w' ? 'white' : 'black', lastMove: last ? [last.from, last.to] : undefined, check: GD.chess.isCheck(), orientation: GD.orient,
+    movable: { free: false, color: movable ? GD.orient : undefined, dests: movable ? legalDests(GD.chess) : new Map(), events: { after: onGuidedMove } } });
+}
+function gdProg() {
+  const el = document.getElementById('gd-prog'); if (!el) return;
+  const moves = GD.chess.history();
+  clear(el).append(h('div', { class: 'hint tiny' }, `Move ${Math.min(GD.ply + 1, GD.moves.length)} of ${GD.moves.length}`),
+    h('div', { class: 'hint tiny', style: { fontFamily: 'var(--mono)', marginTop: '4px' } }, moves.map((m, i) => (i % 2 === 0 ? Math.floor(i / 2) + 1 + '.' : '') + m).join(' ')));
 }
 
-function answerWhy(picked, opts) {
-  if (GD.answered) return;
-  GD.answered = true;
-  if (picked.correct) GD.score++;
+function guidedAdvance() {
+  if (GD.ply >= GD.moves.length) return finishGuided();
   const m = GD.moves[GD.ply];
-  GD.ground.set({ fen: GD.fens[GD.ply + 1], lastMove: [m.from, m.to] });
-  showArrow(GD.ground, m.from + m.to, 'green');
-  const panel = document.getElementById('gd-panel'); clear(panel);
-  panel.append(h('div', { style: { fontWeight: 800, color: picked.correct ? 'var(--good)' : 'var(--warn)', marginBottom: '10px' } }, picked.correct ? '✓ Exactly!' : 'Good to know —'));
-  for (const o of opts) panel.append(h('div', { style: { borderLeft: `3px solid ${o.correct ? 'var(--good)' : 'var(--muted)'}`, paddingLeft: '10px', marginBottom: '9px', opacity: (o.correct || o === picked) ? 1 : 0.6 } },
-    h('div', { class: 'hint', style: { fontSize: '13px' } }, o.text, o.correct ? h('b', { style: { color: 'var(--good)' } }, '  ✓') : (o === picked ? h('span', { class: 'hint tiny' }, '  ← you') : null))));
-  document.getElementById('gd-coach').textContent = `${m.san} — ${IDEAS[classifyOpeningMove(m)]}`;
-  const last = GD.ply >= GD.moves.length - 1;
-  panel.append(h('button', { class: 'btn', style: { marginTop: '4px' }, onclick: () => { if (last) finishGuided(); else { GD.ply++; renderGuided(); } } }, last ? 'Finish ✓' : 'Next move →'));
+  const turn = GD.chess.turn() === 'w' ? 'white' : 'black';
+  gdProg();
+  if (turn !== GD.orient) {
+    GD.busy = true; gdSetBoard(false);
+    gdSetCoach(`${turn === 'white' ? 'White' : 'Black'} plays ${m.san}`, gdCommentary(GD.chess.fen(), m), 'var(--muted)');
+    setTimeout(() => { try { GD.chess.move(m.san); } catch {} GD.ply++; GD.busy = false; guidedAdvance(); }, 1500);
+  } else {
+    gdSetBoard(true);
+    gdSetCoach('Your move', `Play the book move — drag the piece and I'll tell you the idea.`, 'var(--accent-2)');
+  }
+}
+
+function onGuidedMove(orig, dest) {
+  if (GD.busy) return;
+  const expected = GD.moves[GD.ply];
+  const fenBefore = GD.chess.fen();
+  let mv; try { mv = new Chess(fenBefore).move({ from: orig, to: dest, promotion: 'q' }); } catch { mv = null; }
+  if (!mv) { gdSetBoard(true); return; }
+  GD.total++;
+  if (mv.san === expected.san) {
+    GD.correct++; GD.chess.move({ from: orig, to: dest, promotion: 'q' }); GD.ply++;
+    gdSetBoard(false); showArrow(GD.ground, mv.from + mv.to, 'green');
+    gdSetCoach(`✓ ${mv.san}`, gdCommentary(fenBefore, mv), 'var(--good)');
+    GD.busy = true; setTimeout(() => { GD.busy = false; guidedAdvance(); }, 950);
+  } else {
+    GD.chess.move(expected.san); GD.ply++;
+    gdSetBoard(false); showArrow(GD.ground, expected.from + expected.to, 'red');
+    gdSetCoach(`The book move is ${expected.san}`, gdCommentary(fenBefore, expected), 'var(--warn)');
+    GD.busy = true; setTimeout(() => { GD.busy = false; guidedAdvance(); }, 1800);
+  }
 }
 
 function finishGuided() {
-  const pct = Math.round((GD.score / GD.moves.length) * 100);
+  const pct = GD.total ? Math.round((GD.correct / GD.total) * 100) : 100;
   // mark this variation seen +1 in the family's study record
   const fam = STO.family || (GD.opening.name || '').split(':')[0].trim();
   const all = store.get('openings.study', {});
@@ -296,7 +323,7 @@ function finishGuided() {
   const times = all[fam][GD.opening.name];
   clear(host).append(h('div', { class: 'empty', style: { paddingTop: '40px' } },
     h('div', { style: { fontSize: '44px' } }, pct >= 80 ? '🎉' : '📖'),
-    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `${GD.score}/${GD.moves.length} ideas right`),
+    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `You played ${GD.correct}/${GD.total} book moves`),
     h('div', { class: 'hint', style: { marginTop: '6px' } }, times >= 2 ? 'You\'ve seen this line a couple of times — it\'s checked off ✅. Try the quiz!' : 'Seen once — go through it one more time to check it off, or try the quiz.'),
     h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px', gap: '10px' } },
       h('button', { class: 'btn', onclick: () => openGuided(GD.opening) }, '↻ Again'),
