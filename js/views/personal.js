@@ -8,6 +8,8 @@ import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnaps
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
 import { computeDimensions, dailyPlan, narratives, focusAreas } from '../report.js';
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
+import { computeBadges, newlyEarned } from '../achievements.js';
+import { LESSONS } from '../lessons.js';
 import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport, renderRatingHistory } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
@@ -167,6 +169,7 @@ async function drawReport() {
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
     area.append(startCTA());
+    renderBadges(area, badgeData(myGames, eloPoints));
     renderCleanReport(area, {
       rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
       record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
@@ -179,6 +182,7 @@ async function drawReport() {
     // INSTANT value (no analysis needed) so a first-timer sees something in <2s, then the
     // coaching insights build in the background instead of blocking on a 90s spinner.
     area.append(startCTA());
+    renderBadges(area, badgeData(myGames, eloPoints));
     area.append(instantSnapshot(record, last10rec, myGames[0]?.userRating, scope === 'all' ? null : scopeName));
     renderRatingHistory(area, eloPoints, scope === 'all' ? null : scopeName);
     const insightArea = h('div', { id: 'insight-area', class: 'section' });
@@ -209,6 +213,37 @@ function startCTA() {
       h('div', { class: 'row', style: { gap: '14px', alignItems: 'center' } },
         (streak.count ? h('div', { style: { textAlign: 'center' } }, h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '20px' } }, '🔥 ' + streak.count), h('div', { class: 'hint tiny' }, 'day streak')) : null),
         h('button', { class: 'btn', onclick: () => CTX.navigate('train') }, 'Start →'))));
+}
+
+function badgeData(myGames, eloPoints) {
+  const streak = store.get('train.streak', { count: 0 }).count || 0;
+  const puzzles = Object.keys(store.get('puzzles.srs', { puzzles: {} }).puzzles || {}).length;
+  const lessons = Object.keys(store.get('lessons.done', {})).length;
+  let winStreak = 0;
+  for (const g of myGames) { if (g.userResult === 'win') winStreak++; else break; }
+  let ratingGain = 0;
+  if (eloPoints.length >= 2) ratingGain = eloPoints[eloPoints.length - 1].rating - eloPoints[Math.max(0, eloPoints.length - 20)].rating;
+  return { streak, puzzles, lessons, lessonsTotal: LESSONS.length, winStreak, ratingGain };
+}
+
+function renderBadges(area, data) {
+  const badges = computeBadges(data);
+  const earned = badges.filter((b) => b.earned);
+  const seen = store.get('achievements.seen', []);
+  const fresh = newlyEarned(badges, seen);
+  if (fresh.length) {
+    store.set('achievements.seen', [...seen, ...fresh.map((b) => b.id)]);
+    area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', background: 'rgba(125,211,95,.06)' } },
+      h('div', { style: { fontWeight: 800, fontSize: '16px', color: 'var(--accent-2)' } }, `🎉 New achievement${fresh.length > 1 ? 's' : ''}!`),
+      h('div', { class: 'row', style: { gap: '18px', marginTop: '10px', flexWrap: 'wrap' } }, ...fresh.map((b) =>
+        h('div', { style: { textAlign: 'center' } }, h('div', { style: { fontSize: '32px' } }, b.icon), h('div', { style: { fontWeight: 700, fontSize: '13px' } }, b.name), h('div', { class: 'hint tiny' }, b.desc))))));
+  }
+  if (earned.length) {
+    area.append(h('div', { class: 'card section' },
+      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } }, h('b', {}, '🏅 Your badges'), h('span', { class: 'hint tiny' }, `${earned.length} of ${badges.length}`)),
+      h('div', { class: 'row', style: { gap: '18px', marginTop: '10px', flexWrap: 'wrap' } }, ...earned.map((b) =>
+        h('div', { title: b.desc, style: { textAlign: 'center', minWidth: '58px' } }, h('div', { style: { fontSize: '26px' } }, b.icon), h('div', { class: 'hint tiny', style: { fontWeight: 700 } }, b.name))))));
+  }
 }
 
 function instantSnapshot(record, last10, rating, scopeName) {
