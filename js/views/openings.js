@@ -11,6 +11,7 @@ import {
 } from '../openings.js';
 import { whatYouFace, scoutPeers } from '../peers.js';
 import { explainMove } from '../explain.js';
+import { noteFor } from '../opening-notes.js';
 
 const OS = { username: '', games: [], correlation: null, posIndex: null, mode: 'yours', loaded: false };
 let CTX = null, host = null;
@@ -260,7 +261,9 @@ function renderGuided() {
 }
 
 const gdFenAfter = (fen, san) => { try { const c = new Chess(fen); c.move(san); return c.fen(); } catch { return fen; } };
-function gdCommentary(fenBefore, m) {
+function gdCommentary(fenBefore, m, sanSeq) {
+  const note = sanSeq && noteFor(sanSeq); // hand-written commentary for the popular lines
+  if (note) return note;
   try { return explainMove({ fenBefore, fenAfter: gdFenAfter(fenBefore, m.san), move: m, label: 'Best', ply: GD.ply + 1, history: [], bestMoveUci: null }).text; }
   catch { return IDEAS[classifyOpeningMove(m)]; }
 }
@@ -284,7 +287,7 @@ function guidedAdvance() {
   gdProg();
   if (turn !== GD.orient) {
     GD.busy = true; gdSetBoard(false);
-    gdSetCoach(`${turn === 'white' ? 'White' : 'Black'} plays ${m.san}`, gdCommentary(GD.chess.fen(), m), 'var(--muted)');
+    gdSetCoach(`${turn === 'white' ? 'White' : 'Black'} plays ${m.san}`, gdCommentary(GD.chess.fen(), m, [...GD.chess.history(), m.san].join(' ')), 'var(--muted)');
     setTimeout(() => { try { GD.chess.move(m.san); } catch {} GD.ply++; GD.busy = false; guidedAdvance(); }, 1500);
   } else {
     gdSetBoard(true);
@@ -302,12 +305,12 @@ function onGuidedMove(orig, dest) {
   if (mv.san === expected.san) {
     GD.correct++; GD.chess.move({ from: orig, to: dest, promotion: 'q' }); GD.ply++;
     gdSetBoard(false); showArrow(GD.ground, mv.from + mv.to, 'green');
-    gdSetCoach(`✓ ${mv.san}`, gdCommentary(fenBefore, mv), 'var(--good)');
+    gdSetCoach(`✓ ${mv.san}`, gdCommentary(fenBefore, mv, GD.chess.history().join(' ')), 'var(--good)');
     GD.busy = true; setTimeout(() => { GD.busy = false; guidedAdvance(); }, 950);
   } else {
     GD.chess.move(expected.san); GD.ply++;
     gdSetBoard(false); showArrow(GD.ground, expected.from + expected.to, 'red');
-    gdSetCoach(`The book move is ${expected.san}`, gdCommentary(fenBefore, expected), 'var(--warn)');
+    gdSetCoach(`The book move is ${expected.san}`, gdCommentary(fenBefore, expected, GD.chess.history().join(' ')), 'var(--warn)');
     GD.busy = true; setTimeout(() => { GD.busy = false; guidedAdvance(); }, 1800);
   }
 }
