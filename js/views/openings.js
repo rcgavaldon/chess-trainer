@@ -132,7 +132,283 @@ function renderOpeningList(el, list, title) {
 // ---- line play-through with coach ----
 const L = { opening: null, ply: 0, ground: null, sans: [], positions: [] };
 
-function openByMoves(opening) { openExplorer(opening); }
+function openByMoves(opening) { openStudy(opening); }
+
+// ============================================================
+// OPENING STUDY — pick a family, learn each VARIATION (branch) as a check-off lesson (see it
+// a couple of times), then a QUIZ that mixes the positions up and asks for the move + the
+// idea. That's training; the old click-through explorer is now just an optional "Browse".
+// ============================================================
+const STO = { family: '', opening: null, vars: [] };
+
+async function variationsOf(opening) {
+  const book = await loadOpenings();
+  const fam = (opening.name || '').split(':')[0].trim();
+  const byName = new Map();
+  for (const o of book) {
+    if (o.name.split(':')[0].trim() !== fam || o.san.length < 3) continue;
+    const ex = byName.get(o.name);
+    if (!ex || o.san.length > ex.san.length) byName.set(o.name, o);
+  }
+  const vars = [...byName.values()].sort((a, b) => a.san.length - b.san.length).slice(0, 6);
+  return vars.length ? vars : [opening];
+}
+
+async function openStudy(opening) {
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading the variations…'));
+  STO.family = (opening.name || '').split(':')[0].trim();
+  STO.opening = opening;
+  STO.vars = await variationsOf(opening).catch(() => [opening]);
+  renderStudy();
+}
+
+const studySeen = () => (store.get('openings.study', {})[STO.family]) || {};
+
+function renderStudy() {
+  clear(host);
+  const seen = studySeen();
+  host.append(
+    h('button', { class: 'btn ghost small', onclick: draw }, '← Openings'),
+    h('h1', { style: { marginTop: '8px' } }, `🎓 ${STO.family}`),
+    h('p', { class: 'hint' }, 'Go through each variation a couple of times — then take the quiz that mixes them up and asks you to find the move and the idea behind it.'));
+  const list = h('div', { class: 'card section' });
+  for (const v of STO.vars) {
+    const n = seen[v.name] || 0;
+    const sub = v.name.includes(':') ? v.name.split(':').slice(1).join(':').trim() : v.name;
+    list.append(h('div', { class: 'game-row', style: { gridTemplateColumns: '26px 1fr 64px 76px' }, onclick: () => openGuided(v) },
+      h('div', { style: { fontSize: '16px' } }, n >= 2 ? '✅' : n === 1 ? '◔' : '○'),
+      h('div', {}, h('b', {}, sub), h('div', { class: 'meta', style: { fontFamily: 'var(--mono)' } }, v.san.slice(0, 8).join(' '))),
+      h('div', { class: 'hint tiny' }, n ? `seen ${n}×` : 'new'),
+      h('button', { class: 'btn small ghost', onclick: (e) => { e.stopPropagation(); openGuided(v); } }, n ? 'Review' : 'Study')));
+  }
+  host.append(list);
+  const totalSeen = STO.vars.reduce((s, v) => s + (seen[v.name] || 0), 0);
+  host.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)' } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' } },
+      h('div', {}, h('b', {}, '🧩 Quiz me'), h('div', { class: 'hint tiny' }, totalSeen ? 'Mixed positions from these lines — find the move, then say why.' : 'Study a line or two first, then quiz yourself.')),
+      h('button', { class: 'btn', onclick: openOpeningQuiz }, 'Start quiz →'))));
+}
+
+// ---- guided walkthrough of ONE variation: "play X — here's why" (a check-off lesson) ----
+const IDEAS = {
+  centerPawn: 'It claims space in the center and opens lines for your pieces.',
+  developKnight: 'It develops a knight toward the center, where it controls the most squares.',
+  developBishop: 'It develops a bishop to an active diagonal.',
+  fianchetto: 'It fianchettoes the bishop onto the long diagonal, aiming right through the center.',
+  castle: 'It castles the king to safety and brings a rook into the game.',
+  flankPawn: 'It gains space on the wing and makes room — often to fianchetto a bishop.',
+  centralControl: 'It fights for the central squares from a distance.',
+  trade: 'It trades a pair of pieces to ease the position.',
+};
+const shuffleA = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+function classifyOpeningMove(m) {
+  const CENTER = new Set(['d4', 'e4', 'd5', 'e5', 'c4', 'c5', 'f4', 'f5']);
+  if (m.flags && (m.flags.includes('k') || m.flags.includes('q'))) return 'castle';
+  if (m.captured) return 'trade';
+  if (m.piece === 'p') return CENTER.has(m.to) ? 'centerPawn' : 'flankPawn';
+  if (m.piece === 'b') return ['g2', 'b2', 'g7', 'b7'].includes(m.to) ? 'fianchetto' : 'developBishop';
+  if (m.piece === 'n') return 'developKnight';
+  if (m.piece === 'q') return 'centralControl';
+  return 'developKnight';
+}
+
+function whyOptions(correctKey) {
+  const others = Object.keys(IDEAS).filter((k) => k !== correctKey);
+  shuffleA(others);
+  return shuffleA([{ text: IDEAS[correctKey], correct: true }, ...others.slice(0, 2).map((k) => ({ text: IDEAS[k], correct: false }))]);
+}
+
+const GD = { opening: null, moves: [], fens: [], ply: 0, score: 0, ground: null, answered: false, orient: 'white' };
+
+async function openGuided(opening) {
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Building your opening lesson…'));
+  const ext = await extendLine(opening.san || [], 12).catch(() => ({ sans: opening.san || [] }));
+  const chess = new Chess();
+  const moves = [], fens = [chess.fen()];
+  for (const s of (ext.sans || [])) { const m = chess.move(s); if (!m) break; moves.push({ san: s, from: m.from, to: m.to, piece: m.piece, flags: m.flags, captured: m.captured, color: m.color, fenBefore: fens[fens.length - 1] }); fens.push(chess.fen()); }
+  GD.opening = opening; GD.moves = moves; GD.fens = fens; GD.ply = 0; GD.score = 0; GD.answered = false;
+  GD.orient = (correlationColor(opening) === 'black') ? 'black' : 'white';
+  if (!moves.length) { clear(host).append(h('div', { class: 'empty' }, 'No line to teach for this opening.'), h('button', { class: 'btn ghost', onclick: draw }, '← Back')); return; }
+  renderGuided();
+}
+
+function correlationColor(opening) {
+  const rec = (OS.correlation || []).find((o) => o.deepest && o.deepest.name === opening.name);
+  if (rec) return rec.asWhite >= rec.asBlack ? 'white' : 'black';
+  return /defen[cs]e|sicilian|pirc|caro|french|scandinavian|king'?s indian/i.test(opening.name || '') ? 'black' : 'white';
+}
+
+function renderGuided() {
+  clear(host);
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: draw }, '← Openings'),
+      h('button', { class: 'btn ghost small', onclick: () => openExplorer(GD.opening), title: 'Browse all the lines instead' }, 'Browse lines')),
+    h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, `📖 ${GD.opening.name}`),
+    h('div', { class: 'hint tiny' }, `Move ${GD.ply + 1} of ${GD.moves.length} · learn the idea behind each move`));
+  const boardEl = h('div', { id: 'gd-board' });
+  const panel = h('div', { class: 'trainer-side', id: 'gd-panel' });
+  host.append(h('div', { class: 'trainer-grid section' },
+    h('div', { class: 'trainer-coach' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, '♟ Coach'), h('div', { class: 'explain-box', id: 'gd-coach' })),
+    h('div', { class: 'board-wrap trainer-board' }, boardEl),
+    panel));
+  GD.ground = createBoard(boardEl, { viewOnly: true, fen: GD.fens[GD.ply], coordinates: true, orientation: GD.orient });
+  GD.answered = false;
+  askWhy();
+}
+
+function askWhy() {
+  const m = GD.moves[GD.ply];
+  const mover = m.color === 'w' ? 'White' : 'Black';
+  GD.ground.set({ fen: m.fenBefore });
+  document.getElementById('gd-coach').textContent = `${mover}'s move here is ${m.san}. It's the move — but do you know why?`;
+  const panel = document.getElementById('gd-panel'); clear(panel);
+  panel.append(h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '8px' } }, `Why ${m.san}?`));
+  const opts = whyOptions(classifyOpeningMove(m));
+  for (const o of opts) panel.append(h('button', { class: 'btn ghost', style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '8px', fontSize: '13px', whiteSpace: 'normal', lineHeight: '1.35' }, onclick: () => answerWhy(o, opts) }, o.text));
+}
+
+function answerWhy(picked, opts) {
+  if (GD.answered) return;
+  GD.answered = true;
+  if (picked.correct) GD.score++;
+  const m = GD.moves[GD.ply];
+  GD.ground.set({ fen: GD.fens[GD.ply + 1], lastMove: [m.from, m.to] });
+  showArrow(GD.ground, m.from + m.to, 'green');
+  const panel = document.getElementById('gd-panel'); clear(panel);
+  panel.append(h('div', { style: { fontWeight: 800, color: picked.correct ? 'var(--good)' : 'var(--warn)', marginBottom: '10px' } }, picked.correct ? '✓ Exactly!' : 'Good to know —'));
+  for (const o of opts) panel.append(h('div', { style: { borderLeft: `3px solid ${o.correct ? 'var(--good)' : 'var(--muted)'}`, paddingLeft: '10px', marginBottom: '9px', opacity: (o.correct || o === picked) ? 1 : 0.6 } },
+    h('div', { class: 'hint', style: { fontSize: '13px' } }, o.text, o.correct ? h('b', { style: { color: 'var(--good)' } }, '  ✓') : (o === picked ? h('span', { class: 'hint tiny' }, '  ← you') : null))));
+  document.getElementById('gd-coach').textContent = `${m.san} — ${IDEAS[classifyOpeningMove(m)]}`;
+  const last = GD.ply >= GD.moves.length - 1;
+  panel.append(h('button', { class: 'btn', style: { marginTop: '4px' }, onclick: () => { if (last) finishGuided(); else { GD.ply++; renderGuided(); } } }, last ? 'Finish ✓' : 'Next move →'));
+}
+
+function finishGuided() {
+  const pct = Math.round((GD.score / GD.moves.length) * 100);
+  // mark this variation seen +1 in the family's study record
+  const fam = STO.family || (GD.opening.name || '').split(':')[0].trim();
+  const all = store.get('openings.study', {});
+  all[fam] = all[fam] || {};
+  all[fam][GD.opening.name] = (all[fam][GD.opening.name] || 0) + 1;
+  store.set('openings.study', all);
+  const times = all[fam][GD.opening.name];
+  clear(host).append(h('div', { class: 'empty', style: { paddingTop: '40px' } },
+    h('div', { style: { fontSize: '44px' } }, pct >= 80 ? '🎉' : '📖'),
+    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `${GD.score}/${GD.moves.length} ideas right`),
+    h('div', { class: 'hint', style: { marginTop: '6px' } }, times >= 2 ? 'You\'ve seen this line a couple of times — it\'s checked off ✅. Try the quiz!' : 'Seen once — go through it one more time to check it off, or try the quiz.'),
+    h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px', gap: '10px' } },
+      h('button', { class: 'btn', onclick: () => openGuided(GD.opening) }, '↻ Again'),
+      h('button', { class: 'btn', onclick: openOpeningQuiz }, '🧩 Quiz me'),
+      h('button', { class: 'btn ghost', onclick: renderStudy }, 'Variations'))));
+}
+
+// ============================================================
+// OPENING QUIZ — randomised positions from the studied variations: find the book move, then
+// say WHY it's the move. Tests recall across all the branches.
+// ============================================================
+const QZ = { qs: [], i: 0, score: 0, ground: null, current: null, answered: false };
+
+function buildQuizQuestions() {
+  const seen = studySeen();
+  const pool = STO.vars.filter((v) => (seen[v.name] || 0) >= 1);
+  const src = pool.length ? pool : STO.vars;
+  const qs = [];
+  for (const v of src) {
+    const c = new Chess(); const fens = [c.fen()];
+    for (const s of v.san) {
+      const m = c.move(s); if (!m) break;
+      qs.push({ fen: fens[fens.length - 1], best: s, from: m.from, to: m.to, piece: m.piece, flags: m.flags, captured: m.captured, color: m.color, variation: v.name });
+      fens.push(c.fen());
+    }
+  }
+  const byFen = new Map();
+  for (const q of qs) if (q.san !== undefined || !byFen.has(q.fen)) byFen.set(q.fen, q);
+  return shuffleA([...byFen.values()]).slice(0, 8);
+}
+
+function moveOptions(q) {
+  let legal = [];
+  try { legal = new Chess(q.fen).moves().filter((m) => m !== q.best); } catch {}
+  shuffleA(legal);
+  return shuffleA([q.best, ...legal.slice(0, 3)]);
+}
+
+function openOpeningQuiz() {
+  QZ.qs = buildQuizQuestions();
+  QZ.i = 0; QZ.score = 0;
+  if (!QZ.qs.length) return renderStudy();
+  renderQuizQ();
+}
+
+function fenAfter(fen, san) { try { const c = new Chess(fen); c.move(san); return c.fen(); } catch { return fen; } }
+
+function renderQuizQ() {
+  const q = QZ.qs[QZ.i];
+  QZ.current = q; QZ.answered = false;
+  clear(host);
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: renderStudy }, '← Variations'),
+      h('div', { class: 'hint tiny' }, `Quiz · ${QZ.i + 1} of ${QZ.qs.length} · ${QZ.score} right`)),
+    h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, '🧩 Opening quiz'));
+  const boardEl = h('div', { id: 'qz-board' });
+  const panel = h('div', { class: 'trainer-side', id: 'qz-panel' });
+  const orient = correlationColor({ name: q.variation }) === 'black' ? 'black' : 'white';
+  host.append(h('div', { class: 'trainer-grid section' },
+    h('div', { class: 'trainer-coach' },
+      h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)' } }, q.variation.includes(':') ? q.variation.split(':').slice(1).join(':').trim() : q.variation),
+      h('div', { class: 'explain-box', id: 'qz-coach', style: { marginTop: '6px' } }, `${q.color === 'w' ? 'White' : 'Black'} to move — what's the book move here?`)),
+    h('div', { class: 'board-wrap trainer-board' }, boardEl),
+    panel));
+  QZ.ground = createBoard(boardEl, { viewOnly: true, fen: q.fen, coordinates: true, orientation: orient });
+  const opts = moveOptions(q);
+  clear(panel);
+  for (const o of opts) panel.append(h('button', { class: 'btn ghost', style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '8px', fontFamily: 'var(--mono)', fontWeight: 700, fontSize: '15px' }, onclick: () => answerQuizMove(o) }, o));
+}
+
+function answerQuizMove(picked) {
+  if (QZ.answered) return;
+  QZ.answered = true;
+  const q = QZ.current;
+  const correct = picked === q.best;
+  QZ.ground.set({ fen: fenAfter(q.fen, q.best), lastMove: [q.from, q.to] });
+  showArrow(QZ.ground, q.from + q.to, correct ? 'green' : 'red');
+  const panel = document.getElementById('qz-panel'); clear(panel);
+  if (correct) {
+    QZ.score++;
+    document.getElementById('qz-coach').textContent = `✓ ${q.best} is right! Now — why is it the move?`;
+    const wopts = whyOptions(classifyOpeningMove(q));
+    for (const o of wopts) panel.append(h('button', { class: 'btn ghost', style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '8px', fontSize: '13px', whiteSpace: 'normal', lineHeight: '1.35' }, onclick: () => answerQuizWhy(o, wopts) }, o.text));
+  } else {
+    document.getElementById('qz-coach').textContent = `Not quite — the book move is ${q.best}.`;
+    panel.append(h('div', { class: 'hint', style: { marginBottom: '10px' } }, `${q.best} — ${IDEAS[classifyOpeningMove(q)]}`), quizNextBtn());
+  }
+}
+
+function answerQuizWhy(picked, opts) {
+  const panel = document.getElementById('qz-panel'); clear(panel);
+  panel.append(h('div', { style: { fontWeight: 800, color: picked.correct ? 'var(--good)' : 'var(--warn)', marginBottom: '8px' } }, picked.correct ? '✓ Nailed it.' : 'Close —'));
+  for (const o of opts) panel.append(h('div', { style: { borderLeft: `3px solid ${o.correct ? 'var(--good)' : 'var(--muted)'}`, paddingLeft: '10px', marginBottom: '8px', opacity: (o.correct || o === picked) ? 1 : 0.6 } }, h('div', { class: 'hint', style: { fontSize: '13px' } }, o.text)));
+  panel.append(quizNextBtn());
+}
+
+function quizNextBtn() {
+  const last = QZ.i >= QZ.qs.length - 1;
+  return h('button', { class: 'btn', style: { marginTop: '4px' }, onclick: () => (last ? finishQuiz() : (QZ.i++, renderQuizQ())) }, last ? 'Finish ✓' : 'Next →');
+}
+
+function finishQuiz() {
+  const pct = Math.round((QZ.score / QZ.qs.length) * 100);
+  clear(host).append(h('div', { class: 'empty', style: { paddingTop: '40px' } },
+    h('div', { style: { fontSize: '44px' } }, pct >= 80 ? '🎉' : '🧩'),
+    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `Quiz: ${QZ.score}/${QZ.qs.length} (${pct}%)`),
+    h('div', { class: 'hint', style: { marginTop: '6px' } }, pct >= 80 ? 'You know these lines cold.' : 'Review the lines you slipped on, then quiz again.'),
+    h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px', gap: '10px' } },
+      h('button', { class: 'btn', onclick: openOpeningQuiz }, '↻ Again'),
+      h('button', { class: 'btn ghost', onclick: renderStudy }, 'Back to variations'))));
+}
 
 // ---- navigable opening explorer (real data from the Lichess explorer) ----
 const EX = { chess: null, ground: null, opening: null };
