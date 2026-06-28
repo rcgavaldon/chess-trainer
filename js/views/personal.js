@@ -8,6 +8,7 @@ import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnaps
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
 import { computeDimensions, dailyPlan, narratives, focusAreas, superAndWeak } from '../report.js';
 import { playIntro } from '../intro.js';
+import { blunderQuestions } from '../coachquestions.js';
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
 import { computeBadges, newlyEarned } from '../achievements.js';
 import { LESSONS } from '../lessons.js';
@@ -227,7 +228,8 @@ function startCTA() {
         h('div', { class: 'hint tiny' }, plan && plan.focus ? `Built for you — focus on ${String(plan.focus).toLowerCase()}. About 10 minutes.` : 'Puzzles built from your own weak spots. About 10 minutes.')),
       h('div', { class: 'row', style: { gap: '14px', alignItems: 'center' } },
         (streak.count ? h('div', { style: { textAlign: 'center' } }, h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '20px' } }, '🔥 ' + streak.count), h('div', { class: 'hint tiny' }, 'day streak')) : null),
-        h('button', { class: 'btn', onclick: () => CTX.navigate('train') }, 'Start →'))));
+        h('button', { class: 'btn', onclick: () => CTX.navigate('train') }, 'Start →'))),
+    h('div', { class: 'hint tiny', style: { marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '8px' } }, '♟ Coach\'s rule: aim for ~3 focused games today — and if you lose 2 in a row, call it a day. Tilt costs more rating than any opening.'));
 }
 
 function badgeData(myGames, eloPoints) {
@@ -297,6 +299,7 @@ function persistFocus(analyses, today) {
   const profile = buildWeaknessProfile(analyses, analyses[0]?.userColor);
   store.set('train.focus', { themes: suggestedPuzzleThemes(profile), blunders: profile.blunders.slice(0, 8).map((b) => ({ fen: b.fen, theme: b.theme })), ts: Date.now() });
   store.set('train.plan', { game: today.game, study: today.study, headline: today.headline, rest: today.rest, focus: today.focus?.name });
+  store.set('train.questions', blunderQuestions(analyses, 12)); // "from your own games" drill
 }
 
 function gamesDetails() {

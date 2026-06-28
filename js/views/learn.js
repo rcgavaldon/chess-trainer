@@ -6,6 +6,7 @@ import * as store from '../storage.js';
 import { Chess } from 'chess.js';
 import { createBoard, showArrow } from '../board.js';
 import { LESSONS, bestOption } from '../lessons.js';
+import { mistakesLesson } from '../coachquestions.js';
 
 const LS = { lesson: null, step: 0, score: 0, ground: null, answered: false };
 let CTX = null, host = null;
@@ -19,10 +20,21 @@ function draw() { clear(host); if (LS.lesson) renderStep(); else renderList(); }
 function renderList() {
   const done = progress();
   const total = LESSONS.length, finished = LESSONS.filter((l) => done[l.id]).length;
+  const myQuestions = store.get('train.questions', []);
   host.append(
     h('h1', {}, '📚 Learn'),
-    h('p', { class: 'hint' }, 'Short, interactive lessons. See a position, pick a move, and find out why it works — or why it doesn\'t. ' + (finished ? `${finished}/${total} done.` : '')),
-    h('div', { class: 'section', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: '14px' } },
+    h('p', { class: 'hint' }, 'Short, interactive lessons. See a position, pick a move, and find out why it works — or why it doesn\'t. ' + (finished ? `${finished}/${total} done.` : '')));
+  // Personalized: positions from the student's OWN games where they slipped.
+  if (myQuestions.length) {
+    host.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2)', cursor: 'pointer' }, onclick: () => openLesson(mistakesLesson(myQuestions)) },
+      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center' } },
+        h('div', {}, h('div', { style: { fontWeight: 800, fontSize: '17px' } }, '🎯 From your own games'),
+          h('div', { class: 'hint tiny' }, `${Math.min(8, myQuestions.length)} positions you actually misplayed — get them right this time.`)),
+        h('button', { class: 'btn', onclick: () => openLesson(mistakesLesson(myQuestions)) }, 'Start →'))));
+  }
+  host.append(
+    h('h2', { class: 'section' }, 'Lessons'),
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: '14px' } },
       ...LESSONS.map((l) => {
         const d = done[l.id];
         return h('div', { class: 'card', style: { cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '5px' }, onclick: () => openLesson(l) },
