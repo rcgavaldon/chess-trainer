@@ -148,6 +148,12 @@ if (_cls) {
 
 updateOwnerBadge();
 applyTheme(store.get('profile.accent', 'green'));
+// Students don't get coach tools — keep their app to Personal / Openings / Train.
+if (store.get('profile.role') === 'student') {
+  for (const a of document.querySelectorAll('.tabs a')) {
+    if (a.dataset.route === 'class' || a.dataset.route === 'tournament') a.remove();
+  }
+}
 store.onRouteChange(draw);
 if (!store.get('profile.username')) showOnboarding();
 

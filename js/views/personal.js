@@ -8,7 +8,7 @@ import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnaps
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
 import { computeDimensions, dailyPlan, narratives, focusAreas } from '../report.js';
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
-import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport } from '../insightsview.js';
+import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport, renderRatingHistory } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
 import { mountChat } from '../chatcoach.js';
@@ -149,13 +149,6 @@ async function drawReport() {
   const myGames = scopedAll.slice(0, 50); // the last 50 games in THIS category
   const scopeName = TC_LABEL[scope] || scope;
 
-  // first-time: auto-analyze a batch of the SCOPED games so the report is real & on-topic
-  let analyses = scopeAnalyses(myGames);
-  if (!analyses.length && !S._autoScanned && myGames.length) {
-    S._autoScanned = true;
-    await deepScanInto(area, myGames, Math.min(12, myGames.length));
-    analyses = scopeAnalyses(myGames);
-  }
   clear(area);
   area.append(tcSwitcher(allMine, scope));
   const tilt = tiltBanner(allMine);
@@ -163,6 +156,8 @@ async function drawReport() {
 
   const record = recordOf(myGames);
   const last10rec = recordOf(myGames.slice(0, 10));
+  const eloPoints = myGames.filter((g) => g.userRating != null).slice().reverse().map((g) => ({ rating: g.userRating, date: g.dateUTC }));
+  const analyses = scopeAnalyses(myGames);
 
   if (analyses.length) {
     const I = computeInsights(analyses, S.username);
@@ -171,7 +166,7 @@ async function drawReport() {
     const today = dailyPlan(dims, I, I.openings);
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
-    const eloPoints = myGames.filter((g) => g.userRating != null).slice().reverse().map((g) => ({ rating: g.userRating, date: g.dateUTC }));
+    area.append(startCTA());
     renderCleanReport(area, {
       rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
       record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
@@ -179,19 +174,51 @@ async function drawReport() {
       onTrain: () => CTX.navigate('train'),
       onGo: (f) => CTX.navigate(f.dest === 'openings' ? 'openings' : 'train'),
     });
-    area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2), var(--shadow-sm)' } },
-      h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, today.rest ? '😌 Take a lighter day' : '🎯 Today\'s plan'),
-      h('div', { class: 'hint' }, today.game),
-      h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: () => CTX.navigate('train') }, 'Go to training →')));
+    area.append(gamesDetails(), breakdownDetails(analyses, myGames));
   } else if (myGames.length) {
-    area.append(h('div', { class: 'card section' },
-      h('div', { class: 'hint' }, `${myGames.length} ${scopeName} game${myGames.length > 1 ? 's' : ''} loaded — none analyzed yet. Record so far: ${record.w}-${record.l}-${record.d}.`),
-      h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: async () => { await deepScanInto(document.getElementById('report-area'), myGames, Math.min(12, myGames.length)); drawReport(); } }, `Analyze my ${scopeName} games`)));
+    // INSTANT value (no analysis needed) so a first-timer sees something in <2s, then the
+    // coaching insights build in the background instead of blocking on a 90s spinner.
+    area.append(startCTA());
+    area.append(instantSnapshot(record, last10rec, myGames[0]?.userRating, scope === 'all' ? null : scopeName));
+    renderRatingHistory(area, eloPoints, scope === 'all' ? null : scopeName);
+    const insightArea = h('div', { id: 'insight-area', class: 'section' });
+    area.append(insightArea, gamesDetails(), breakdownDetails([], myGames));
+    if (!S._autoScanned) {
+      S._autoScanned = true;
+      await deepScanInto(insightArea, myGames, Math.min(12, myGames.length));
+      if (document.getElementById('insight-area')) drawReport(); // analyses ready → full report
+    } else {
+      insightArea.append(h('div', { class: 'card' },
+        h('div', { class: 'hint' }, 'Want your strengths & weaknesses? Analyze a batch of these games (about a minute).'),
+        h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: async () => { await deepScanInto(document.getElementById('insight-area'), myGames, Math.min(12, myGames.length)); drawReport(); } }, `Analyze my ${scopeName} games`)));
+    }
   } else {
     area.append(h('div', { class: 'hint section' }, 'No games in this time control yet.'));
   }
+}
 
-  area.append(gamesDetails(), breakdownDetails(analyses, myGames));
+// A friendly, action-first card: the daily training + the streak. The first thing a student sees.
+function startCTA() {
+  const streak = store.get('train.streak', { count: 0 });
+  const plan = store.get('train.plan', null);
+  return h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.22)' } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' } },
+      h('div', { style: { minWidth: 0 } },
+        h('div', { style: { fontWeight: 800, fontSize: '17px' } }, '🎯 Today\'s training'),
+        h('div', { class: 'hint tiny' }, plan && plan.focus ? `Built for you — focus on ${String(plan.focus).toLowerCase()}. About 10 minutes.` : 'Puzzles built from your own weak spots. About 10 minutes.')),
+      h('div', { class: 'row', style: { gap: '14px', alignItems: 'center' } },
+        (streak.count ? h('div', { style: { textAlign: 'center' } }, h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '20px' } }, '🔥 ' + streak.count), h('div', { class: 'hint tiny' }, 'day streak')) : null),
+        h('button', { class: 'btn', onclick: () => CTX.navigate('train') }, 'Start →'))));
+}
+
+function instantSnapshot(record, last10, rating, scopeName) {
+  const winPct = (r) => { const g = r.w + r.l + r.d; return g ? Math.round(((r.w + r.d * 0.5) / g) * 100) : 0; };
+  const snap = (k, v, sub) => h('div', { class: 'snap' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v), sub != null ? h('div', { class: 'sub' }, sub) : null);
+  const n = record.w + record.l + record.d;
+  return h('div', { class: 'card section snapshot' },
+    snap('Rating', rating ?? '—', scopeName),
+    snap('Record', `${record.w}-${record.l}-${record.d}`, `${winPct(record)}% over ${n}`),
+    snap('Last 10', `${last10.w}-${last10.l}-${last10.d}`, `${winPct(last10)}% score`));
 }
 
 async function deepScanInto(area, games, n) {

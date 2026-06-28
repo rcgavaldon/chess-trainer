@@ -67,6 +67,15 @@ function eloHistorySvg(points) {
     <circle cx="${x(n - 1).toFixed(1)}" cy="${y(cur).toFixed(1)}" r="3.6" fill="var(--accent)" stroke="#0b0f0c" stroke-width="1.2"/></svg>`;
 }
 
+// Standalone rating-history card (used for instant value before analysis finishes).
+export function renderRatingHistory(host, eloPoints, scopeLabel) {
+  if (!eloPoints || eloPoints.length < 3) return;
+  host.append(h('div', { class: 'card section' },
+    h('h2', {}, `Your ${scopeLabel ? scopeLabel + ' ' : ''}rating over time`),
+    h('div', { html: eloHistorySvg(eloPoints) }),
+    h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Each step is a game in this category, oldest on the left — the dot on the right is now.')));
+}
+
 const LEVEL_COLOR = { weak: 'var(--bad)', ok: 'var(--warn)', strong: 'var(--good)' };
 const TONE_PILL = { focus: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' }, strength: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } };
 function focusRow(f, onGo) {
