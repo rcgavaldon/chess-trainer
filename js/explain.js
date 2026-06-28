@@ -131,6 +131,168 @@ function openingFlags(move, history, ply) {
   return flags;
 }
 
+// ---------------------------------------------------------------------------
+// Positional / instructional detectors — these run on GOOD and NEUTRAL moves so
+// almost every move gets a specific, position-aware reason (no LLM needed).
+// ---------------------------------------------------------------------------
+const CENTER4 = new Set(['d4', 'e4', 'd5', 'e5']);
+const fileOf = (sq) => sq.charCodeAt(0) - 97;
+const rankOf = (sq) => +sq[1];
+const backRank = (color) => (color === 'w' ? 1 : 8);
+
+function fileOpenness(chess, file, color) {
+  let own = 0, enemy = 0;
+  for (let r = 1; r <= 8; r++) {
+    const p = chess.get(String.fromCharCode(97 + file) + r);
+    if (p && p.type === 'p') { if (p.color === color) own++; else enemy++; }
+  }
+  if (own === 0 && enemy === 0) return 'open';
+  if (own === 0) return 'semi';
+  return 'closed';
+}
+
+function piecesLeft(chess) {
+  let n = 0;
+  for (const row of chess.board()) for (const sq of row) if (sq && sq.type !== 'k' && sq.type !== 'p') n++;
+  return n;
+}
+
+// Could an enemy pawn ever advance to attack this square (to kick a knight off it)?
+function pawnCanAttack(chess, sq, byColor) {
+  const f = fileOf(sq), r = rankOf(sq);
+  for (const df of [-1, 1]) {
+    const ff = f + df; if (ff < 0 || ff > 7) continue;
+    for (let rr = 1; rr <= 8; rr++) {
+      const p = chess.get(String.fromCharCode(97 + ff) + rr);
+      if (p && p.type === 'p' && p.color === byColor) {
+        if (byColor === 'w' && rr < r) return true;
+        if (byColor === 'b' && rr > r) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// The just-moved piece creates a single concrete winning threat (forks handled separately).
+function detectThreat(ctx) {
+  const m = ctx.move;
+  const chess = new Chess(ctx.fenAfter);
+  const mover = m.color, enemy = mover === 'w' ? 'b' : 'w';
+  const moverFen = setTurn(ctx.fenAfter, mover);
+  let best = null;
+  for (const row of chess.board()) for (const sq of row) {
+    if (!sq || sq.color !== enemy) continue;
+    if (!chess.attackers(sq.square, mover).includes(m.to)) continue;
+    const swing = see(moverFen, sq.square);
+    if (swing > 0 && (!best || swing > best.swing)) best = { square: sq.square, piece: sq.type, swing };
+  }
+  return best;
+}
+
+// The moved piece was under attack on its old square and is safe now.
+function detectEscape(ctx) {
+  const enemy = ctx.move.color === 'w' ? 'b' : 'w';
+  const before = new Chess(ctx.fenBefore);
+  if (!before.isAttacked(ctx.move.from, enemy)) return null;
+  if (see(setTurn(ctx.fenBefore, enemy), ctx.move.from) <= 0) return null;
+  if (see(setTurn(ctx.fenAfter, enemy), ctx.move.to) > 0) return null; // still hangs
+  return { piece: ctx.move.piece };
+}
+
+function detectRecapture(ctx) {
+  if (!ctx.move.captured) return null;
+  const last = ctx.history[ctx.history.length - 1];
+  return last && last.captured && last.to === ctx.move.to ? { piece: ctx.move.captured } : null;
+}
+
+function detectOpenFileRook(ctx) {
+  if (ctx.move.piece !== 'r') return null;
+  const o = fileOpenness(new Chess(ctx.fenAfter), fileOf(ctx.move.to), ctx.move.color);
+  return o === 'closed' ? null : { file: ctx.move.to[0], openness: o };
+}
+
+function detectOutpost(ctx) {
+  if (ctx.move.piece !== 'n') return null;
+  const chess = new Chess(ctx.fenAfter);
+  const m = ctx.move;
+  const pawnDefended = chess.attackers(m.to, m.color).some((s) => { const p = chess.get(s); return p && p.type === 'p'; });
+  if (!pawnDefended) return null;
+  const advanced = m.color === 'w' ? rankOf(m.to) >= 4 : rankOf(m.to) <= 5;
+  if (!advanced) return null;
+  if (pawnCanAttack(chess, m.to, m.color === 'w' ? 'b' : 'w')) return null;
+  return { square: m.to };
+}
+
+function detectDevelopment(ctx) {
+  const m = ctx.move;
+  if (ctx.ply > 22 || (m.piece !== 'n' && m.piece !== 'b')) return null;
+  if (rankOf(m.from) !== backRank(m.color)) return null;
+  const chess = new Chess(ctx.fenAfter);
+  const eyesCenter = [...CENTER4].some((sq) => chess.attackers(sq, m.color).includes(m.to));
+  return { piece: m.piece, eyesCenter };
+}
+
+function detectCenterPawn(ctx) {
+  return ctx.move.piece === 'p' && CENTER4.has(ctx.move.to) && ctx.ply <= 16;
+}
+
+function detectPassedPush(ctx) {
+  const m = ctx.move;
+  if (m.piece !== 'p') return null;
+  const chess = new Chess(ctx.fenAfter);
+  if (piecesLeft(chess) > 6) return null;
+  const f = fileOf(m.to), r = rankOf(m.to), enemy = m.color === 'w' ? 'b' : 'w';
+  for (let df = -1; df <= 1; df++) {
+    const ff = f + df; if (ff < 0 || ff > 7) continue;
+    for (let rr = 1; rr <= 8; rr++) {
+      const p = chess.get(String.fromCharCode(97 + ff) + rr);
+      if (p && p.type === 'p' && p.color === enemy) {
+        if (m.color === 'w' && rr > r) return null;
+        if (m.color === 'b' && rr < r) return null;
+      }
+    }
+  }
+  return true;
+}
+
+function detectKingActivity(ctx) {
+  const m = ctx.move;
+  if (m.piece !== 'k' || piecesLeft(new Chess(ctx.fenAfter)) > 5) return null;
+  const dist = (sq) => Math.abs(3.5 - fileOf(sq)) + Math.abs(4.5 - rankOf(sq));
+  return dist(m.to) < dist(m.from) ? true : null;
+}
+
+// Phase- and grade-aware fallbacks. Each teaches a principle; rotated by ply so the
+// same grade never reads identically twice in a row.
+const FALLBACKS = {
+  opening: {
+    good: ['Smooth opening play — you keep developing and fighting for the center, no time wasted.',
+      'A healthy developing move. In the opening the goal is simple: get your pieces out and your king safe, and this does that.',
+      'Solid. You\'re following the opening principles — pieces toward the center, ready to castle.'],
+    bad: ['A little slow for the opening — every move here should develop a new piece or grab the center.',
+      'This loosens things up early. Try to finish developing before starting an adventure.'],
+  },
+  middlegame: {
+    good: ['Good middlegame move — your pieces stay coordinated and you\'re not giving your opponent any targets.',
+      'Sensible. You keep the tension and improve your position without creating a weakness.',
+      'Nice and steady — you\'re building pressure while keeping everything defended.'],
+    bad: ['There was more to squeeze out of this position — look for a move that improves your worst-placed piece.',
+      'A bit passive — the middlegame rewards finding active plans for your pieces.'],
+  },
+  endgame: {
+    good: ['Clean endgame technique — every tempo matters here, and you keep your edge.',
+      'Good. In the endgame, activity is king: your pieces stay busy and your pawns keep rolling.',
+      'Accurate. You hold the position together and don\'t let any counterplay in.'],
+    bad: ['Endgames are about precision — there was a more accurate path that kept more of your advantage.',
+      'Careful here — small endgame slips swing the result. A more active try was available.'],
+  },
+};
+
+function phaseOf(ctx) {
+  if (ctx.ply <= 18) return 'opening';
+  return piecesLeft(new Chess(ctx.fenAfter)) <= 6 ? 'endgame' : 'middlegame';
+}
+
 // Build the single explanation sentence for a move.
 // ctx = { fenBefore, fenAfter, move (verbose), bestMoveUci, bestMoveSan, pvSans, history, ply, label, winLoss }
 export function explainMove(ctx) {
@@ -160,39 +322,55 @@ export function explainMove(ctx) {
     if (op.earlyQueen) add(38, 'opening', `Bringing the queen out this early lets your opponent develop with tempo by attacking her.`);
   }
 
-  if (GOOD.has(ctx.label)) {
+  if (!BAD.has(ctx.label)) {
+    const hangsSelf = detectHanging(ctx.fenAfter, ctx.move)?.square === ctx.move.to;
+    if (ctx.move.promotion) add(97, 'promo', `Promotion! Your pawn becomes a ${NAME[ctx.move.promotion]} — a massive jump in firepower.`);
     const fork = detectFork(ctx.fenAfter, ctx.move);
-    // suppress fork praise if the forking piece itself hangs
-    const forkerSafe = fork && !(detectHanging(ctx.fenAfter, ctx.move)?.square === ctx.move.to);
-    if (fork && forkerSafe) {
+    if (fork && !hangsSelf) {
       const list = fork.targets.map((t) => NAME[t.piece]).join(' and ');
-      add(92, 'fork', `Nice fork — your ${NAME[fork.forker]} hits the ${list} at once.`);
+      add(95, 'fork', `Beautiful fork — your ${NAME[fork.forker]} hits the ${list} at the same time, so one of them is going to fall.`);
     }
     if (ctx.move.captured) {
       const cb = new Chess(ctx.fenBefore);
       const oppDefends = cb.isAttacked(ctx.move.to, cb.turn() === 'w' ? 'b' : 'w');
-      if (!oppDefends) add(88, 'freecap', `You win the ${NAME[ctx.move.captured]} for free.`);
+      if (!oppDefends) add(90, 'freecap', `You grab the ${NAME[ctx.move.captured]} for free — that's clean material in the bank.`);
+      else {
+        const rec = detectRecapture(ctx);
+        if (rec) add(72, 'recap', `Recaptures on ${ctx.move.to} so the material stays even — no need to let your opponent get ahead.`);
+        else add(66, 'trade', `Trades on ${ctx.move.to}. Swapping pieces simplifies the game and is great when you're ahead or want a calmer position.`);
+      }
     }
-    if (matchedBest) add(80, 'best', `Nice — exactly what the engine wanted. It keeps your pieces active and safe.`);
-    if (ctx.move.flags && (ctx.move.flags.includes('k') || ctx.move.flags.includes('q')))
-      add(45, 'castle', `Castling tucks your king to safety and connects the rooks.`);
+    if (detectPassedPush(ctx)) add(82, 'passed', `Pushes your passed pawn closer to queening — in the endgame a runner like this can decide the game.`);
+    const threat = detectThreat(ctx);
+    if (threat && !hangsSelf && !fork) add(80, 'threat', `This builds a real threat: next move you're ready to win the ${NAME[threat.piece]} on ${threat.square}, so your opponent has to react.`);
+    const esc = detectEscape(ctx);
+    if (esc) add(78, 'escape', `Good awareness — you slide your ${NAME[esc.piece]} out of danger before it can be taken.`);
+    const out = detectOutpost(ctx);
+    if (out) add(70, 'outpost', `Your knight settles on a strong outpost at ${out.square} — propped up by a pawn and impossible for their pawns to chase away. A knight here is worth its weight in gold.`);
+    if (ctx.move.san && ctx.move.san.endsWith('+')) add(64, 'check', `A check — your opponent must answer it immediately, which lets you dictate what happens next.`);
+    if (ctx.move.flags && (ctx.move.flags.includes('k') || ctx.move.flags.includes('q'))) add(62, 'castle', `Castling — king tucked safely behind its pawns and a rook brought toward the center. Exactly what you want out of the opening.`);
+    const dev = detectDevelopment(ctx);
+    if (dev) add(54, 'dev', `Good development: your ${NAME[dev.piece]} comes off the back rank${dev.eyesCenter ? ' and points right at the center' : ''}, getting you a step closer to castling.`);
+    if (detectCenterPawn(ctx)) add(52, 'center', `Stakes a claim in the center. Owning the middle squares gives every one of your pieces more room to operate.`);
+    const rook = detectOpenFileRook(ctx);
+    if (rook) add(50, 'rook', `Rook to the ${rook.openness === 'open' ? 'open' : 'half-open'} ${rook.file}-file. Rooks come alive on open lines — this is where they do their damage.`);
+    if (detectKingActivity(ctx)) add(48, 'kingact', `Activates your king. With so few pieces left, the king turns into a fighting piece — marching it toward the center is textbook endgame play.`);
+    if (matchedBest) add(30, 'best', `This is the engine's top pick — it keeps your pieces active and gives nothing away.`);
   }
 
   if (!reasons.length) {
-    const fb = {
-      Brilliant: 'Wow — you gave up material on purpose to win something even bigger. Great eye!',
-      Great: 'Awesome — this was the one move that kept you in the game. Hard to find!',
-      Best: 'This is the best move. It keeps your pieces working together and doesn\'t give anything away.',
-      Excellent: 'Really good move — your position stays strong and safe.',
-      Good: 'A solid move that keeps things on track.',
-      Book: 'A normal opening move that lots of players know.',
-      Inaccuracy: 'Not the sharpest choice — there was a slightly better move here.',
-      Miss: 'You were winning here and let a little of your lead slip away.',
-      Mistake: 'This gives your opponent a chance — there was a stronger move.',
-      Blunder: 'Oops — this loses something important. Slow down and look for a safer move.',
+    const special = {
+      Brilliant: 'Brilliant! You gave up material on purpose to win something even bigger. That\'s the kind of move that wins games.',
+      Great: 'Great find — this was the one move that held everything together. Not easy to spot.',
+      Book: 'A standard opening move that strong players have trusted for years. You\'re right in theory.',
     };
-    return { type: 'fallback', text: fb[ctx.label] || 'A reasonable move.', all: [] };
+    if (special[ctx.label]) return { type: 'fallback', text: special[ctx.label], all: [] };
+    const phase = phaseOf(ctx);
+    const bucket = BAD.has(ctx.label) ? 'bad' : 'good';
+    const pool = FALLBACKS[phase][bucket];
+    return { type: 'fallback', text: pool[ctx.ply % pool.length], all: [] };
   }
   reasons.sort((a, b) => b.prio - a.prio);
-  return { ...reasons[0], all: reasons };
+  const detail = reasons.slice(0, 3).map((r) => r.text);
+  return { ...reasons[0], all: reasons, detail };
 }

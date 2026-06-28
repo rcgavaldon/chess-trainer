@@ -22,6 +22,27 @@ async function prefixMap() {
 // position key (placement + turn + castling + ep) for matching positions across games/book.
 export function epdOf(fen) { return fen.split(' ').slice(0, 4).join(' '); }
 
+// Book-driven explorer: from a line of UCI moves, the named theory continuations.
+// Each = the next move + the opening it leads into + how many book lines run through it
+// (a proxy for "main line vs sideline"). Works fully offline — the live Lichess
+// win-rates are layered on top only when reachable.
+export async function bookContinuations(uciLine) {
+  const book = await loadOpenings();
+  const n = uciLine.length;
+  const prefix = uciLine.join(' ');
+  const groups = new Map();
+  for (const o of book) {
+    if (o.uci.length <= n) continue;
+    if (n > 0 && o.uci.slice(0, n).join(' ') !== prefix) continue;
+    const nextUci = o.uci[n];
+    let g = groups.get(nextUci);
+    if (!g) { g = { uci: nextUci, name: o.name, eco: o.eco, depth: o.uci.length, lineCount: 0 }; groups.set(nextUci, g); }
+    g.lineCount++;
+    if (o.uci.length < g.depth) { g.name = o.name; g.eco = o.eco; g.depth = o.uci.length; } // shallowest = the move's own name
+  }
+  return [...groups.values()].sort((a, b) => b.lineCount - a.lineCount);
+}
+
 // All legal-move UCI of a game's PGN, in order.
 export function pgnToUci(pgn) {
   try {

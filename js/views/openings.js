@@ -7,7 +7,7 @@ import { getGames } from '../games.js';
 import { createBoard, legalDests, syncBoard, showArrow } from '../board.js';
 import {
   loadOpenings, correlateGames, buildGamePositionIndex, searchOpenings, popularOpenings,
-  suggestOpenings, epdOf, findOpeningMistakes, fetchExplorer,
+  suggestOpenings, epdOf, findOpeningMistakes, fetchExplorer, bookContinuations,
 } from '../openings.js';
 import { whatYouFace, scoutPeers } from '../peers.js';
 
@@ -168,11 +168,21 @@ async function exReload() {
   EX.ground.set({ fen, lastMove: last ? [last.from, last.to] : undefined, check: EX.chess.isCheck() });
   exCoach();
   const panel = document.getElementById('ex-moves');
-  clear(panel).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading the most common moves…'));
-  let data = null;
-  try { data = await fetchExplorer(fen); } catch {}
+  clear(panel).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading lines…'));
+  // 1) book theory (always available, offline) ; 2) live Lichess win-rates (best effort)
+  const uciLine = EX.chess.history({ verbose: true }).map((m) => m.from + m.to + (m.promotion || ''));
+  const conts = await bookContinuations(uciLine).catch(() => []);
+  let live = null;
+  try { live = await fetchExplorer(fen); } catch {}
   if (document.getElementById('ex-moves') !== panel) return;
-  renderExMoves(panel, data, fen);
+  renderExMoves(panel, conts, live, fen);
+}
+
+// Resulting opening name once a candidate move is played (so each row reads like theory).
+function nameAfter(uci) {
+  const c = new Chess(EX.chess.fen());
+  try { c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }); } catch { return null; }
+  return { san: c.history().slice(-1)[0], epd: epdOf(c.fen()) };
 }
 
 function exCoach() {
@@ -197,25 +207,60 @@ function winBar(w, dr, b) {
     <div style="width:${(b / t * 100).toFixed(1)}%;background:#2a2d28"></div></div>`;
 }
 
-function renderExMoves(panel, data, fen) {
+function renderExMoves(panel, conts, live, fen) {
   clear(panel);
-  if (!data || !data.moves || !data.moves.length) {
-    panel.append(h('div', { class: 'hint' }, 'No opening data for this position — you\'ve left known theory (good place to think!), or the explorer is offline.'));
+  const whiteToMove = fen.split(' ')[1] === 'w';
+  const liveByUci = new Map();
+  let liveTotal = 0;
+  if (live && live.moves) { for (const m of live.moves) liveByUci.set(m.uci, m); liveTotal = live.white + live.draws + live.black; }
+  if (live && live.opening) { const nEl = document.getElementById('ex-name'); if (nEl && EX.chess.history().length) nEl.textContent = live.opening.name; }
+
+  // Build rows from the book theory; layer live stats on where available.
+  let rows = (conts || []).map((g) => {
+    const na = nameAfter(g.uci);
+    if (!na) return null;
+    const lv = liveByUci.get(g.uci);
+    const played = OS.posIndex && OS.posIndex.get(na.epd);
+    return { uci: g.uci, san: na.san, name: g.name, eco: g.eco, lineCount: g.lineCount, lv, yours: played ? played.length : 0 };
+  }).filter(Boolean);
+
+  // live-only sidelines (moves people play that aren't in our named book)
+  if (live && live.moves) {
+    const known = new Set(rows.map((r) => r.uci));
+    for (const m of live.moves) {
+      if (known.has(m.uci)) continue;
+      const na = nameAfter(m.uci);
+      if (!na) continue;
+      const played = OS.posIndex && OS.posIndex.get(na.epd);
+      rows.push({ uci: m.uci, san: na.san, name: 'Sideline', lineCount: 0, lv: m, yours: played ? played.length : 0 });
+    }
+  }
+
+  if (!rows.length) {
+    panel.append(h('div', { class: 'hint' }, 'End of the book here — you\'re out of known theory. From now on it\'s about understanding the position, not memorising. Use Back to step out.'));
     return;
   }
-  if (data.opening) { const nEl = document.getElementById('ex-name'), eEl = document.getElementById('ex-eco'); if (nEl) nEl.textContent = data.opening.name; if (eEl) eEl.textContent = data.opening.eco; }
-  const total = data.white + data.draws + data.black;
-  const whiteToMove = fen.split(' ')[1] === 'w';
-  const scored = data.moves.map((m) => { const t = m.white + m.draws + m.black || 1; return { m, t, scorePct: Math.round(((whiteToMove ? m.white : m.black) + m.draws * 0.5) / t * 100) }; });
-  const bestPct = Math.max(...scored.map((s) => s.scorePct));
-  panel.append(h('div', { class: 'hint tiny', style: { marginBottom: '8px' } }, `${total.toLocaleString()} games · ${whiteToMove ? 'White' : 'Black'} to move · click a move to go deeper`));
-  for (const s of scored) {
-    const m = s.m;
-    const isBest = s.scorePct === bestPct && s.t > total * 0.03;
-    panel.append(h('div', { class: 'ex-move', onclick: () => { try { EX.chess.move(m.san); exReload(); } catch {} } },
-      h('div', { class: 'ex-san' }, m.san, isBest ? h('span', { style: { color: 'var(--good)' } }, ' ✓') : null),
-      h('div', { html: winBar(m.white, m.draws, m.black) }),
-      h('div', { class: 'ex-meta' }, Math.round(s.t / total * 100) + '%', h('span', { class: 'hint tiny' }, ` · scores ${s.scorePct}%`))));
+
+  const scoreOf = (lv) => { const t = lv.white + lv.draws + lv.black || 1; return Math.round(((whiteToMove ? lv.white : lv.black) + lv.draws * 0.5) / t * 100); };
+  // sort: book main lines first (by lineCount), then live popularity
+  rows.sort((a, b) => (b.lineCount - a.lineCount) || ((b.lv ? b.lv.white + b.lv.draws + b.lv.black : 0) - (a.lv ? a.lv.white + a.lv.draws + a.lv.black : 0)));
+  const bestScore = Math.max(0, ...rows.filter((r) => r.lv).map((r) => scoreOf(r.lv)));
+
+  panel.append(h('div', { class: 'hint tiny', style: { marginBottom: '8px' } },
+    `${rows.length} theory move${rows.length > 1 ? 's' : ''} · ${whiteToMove ? 'White' : 'Black'} to move`,
+    live ? ` · live win-rates from ${liveTotal.toLocaleString()} games` : ' · win-rates offline (showing book lines)'));
+
+  for (const r of rows) {
+    const meta = [];
+    if (r.lv) { const t = r.lv.white + r.lv.draws + r.lv.black; meta.push(liveTotal ? Math.round(t / liveTotal * 100) + '% play this' : ''); meta.push(`scores ${scoreOf(r.lv)}%`); }
+    const isBest = r.lv && scoreOf(r.lv) === bestScore && bestScore > 0;
+    panel.append(h('div', { class: 'ex-move', onclick: () => { try { EX.chess.move(r.san); exReload(); } catch {} } },
+      h('div', { class: 'ex-san' }, r.san, isBest ? h('span', { style: { color: 'var(--good)' }, title: 'best scoring move' }, ' ✓') : null),
+      h('div', {},
+        h('div', { style: { fontSize: '12.5px', color: 'var(--text)', lineHeight: '1.3' } }, r.name),
+        r.lv ? h('div', { html: winBar(r.lv.white, r.lv.draws, r.lv.black) }) : h('div', { class: 'hint tiny' }, r.lineCount > 1 ? `${r.lineCount} known lines` : 'sideline'),
+        r.yours ? h('div', { class: 'tiny', style: { color: 'var(--accent-2)', fontWeight: 700, marginTop: '2px' } }, `★ you've played this in ${r.yours}`) : null),
+      h('div', { class: 'ex-meta' }, r.lv ? meta.filter(Boolean).map((x) => h('div', {}, x)) : null)));
   }
 }
 
