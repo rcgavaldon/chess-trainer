@@ -365,7 +365,7 @@ function startLine(line, queue) {
 }
 
 function runLine(line) {
-  DR.line = line; DR.ply = 0; DR.mistakes = 0; DR.done = 0; DR.userColor = line.color; DR.busy = false;
+  DR.line = line; DR.ply = 0; DR.mistakes = 0; DR.done = 0; DR.tries = 0; DR.userColor = line.color; DR.busy = false;
   DR.chess = new Chess();
   renderDrillBoard();
   advance();
@@ -436,21 +436,30 @@ function onUserMove(orig, dest) {
   const clone = new Chess(fenBefore);
   let mv; try { mv = clone.move({ from: orig, to: dest, promotion: 'q' }); } catch { mv = null; }
   if (!mv) { boardState(true); return; }
-  DR.busy = true;
+
   if (mv.san === expected) {
-    DR.chess.move({ from: orig, to: dest, promotion: 'q' }); DR.done++; DR.ply++;
+    DR.chess.move({ from: orig, to: dest, promotion: 'q' }); DR.done++; DR.ply++; DR.tries = 0;
     const why = explainMove({ fenBefore, fenAfter: DR.chess.fen(), move: mv, label: 'Best', ply: DR.ply, history: DR.chess.history({ verbose: true }), bestMoveUci: null }).text;
     setCoach(`✓ ${mv.san} — correct!`, why, 'var(--good)');
-    updateProg(); DR.busy = false; advance();
-  } else {
-    DR.mistakes++;
-    const exp = new Chess(fenBefore); const em = exp.move(expected);
-    const why = explainMove({ fenBefore, fenAfter: exp.fen(), move: em, label: 'Best', ply: DR.ply + 1, history: exp.history({ verbose: true }), bestMoveUci: null }).text;
-    setCoach(`✗ Not ${mv.san} — the move here is ${expected}`, why, 'var(--bad)');
-    DR.chess.move(expected); DR.ply++;
-    boardState(false); showArrow(DR.ground, em.from + em.to, 'red');
-    setTimeout(() => { clearArrows(DR.ground); updateProg(); DR.busy = false; advance(); }, 1600);
+    updateProg(); advance();
+    return;
   }
+
+  // wrong move — let them try again; reveal the book move after the 2nd miss
+  DR.tries = (DR.tries || 0) + 1;
+  if (DR.tries === 1) DR.mistakes++; // one slip per move, no matter how many tries
+  if (DR.tries < 2) {
+    setCoach(`Not ${mv.san} — try again`, `That's legal, but not the main line of the ${DR.line.name.split(':')[0]}. Think about the most natural developing move and have another go.`, 'var(--warn)');
+    boardState(true); updateProg(); // re-sync (undoes the wrong move on the board); still your turn
+    return;
+  }
+  DR.busy = true;
+  const exp = new Chess(fenBefore); const em = exp.move(expected);
+  const why = explainMove({ fenBefore, fenAfter: exp.fen(), move: em, label: 'Best', ply: DR.ply + 1, history: exp.history({ verbose: true }), bestMoveUci: null }).text;
+  setCoach(`The move here is ${expected}`, why, 'var(--accent-2)');
+  DR.chess.move(expected); DR.ply++; DR.tries = 0;
+  boardState(false); showArrow(DR.ground, em.from + em.to, 'green');
+  setTimeout(() => { clearArrows(DR.ground); updateProg(); DR.busy = false; advance(); }, 1500);
 }
 
 function finishLine() {
