@@ -7,6 +7,7 @@ import * as cc from '../chesscom.js';
 import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnapshot } from '../review.js';
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
 import { computeDimensions, dailyPlan, narratives, focusAreas } from '../report.js';
+import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
 import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
@@ -63,6 +64,18 @@ function drawHome() {
 }
 
 function reSync() { S.games = []; S._autoScanned = false; doImport(); }
+
+// Tilt check on the student's own recent games — a gentle, real "take a break" nudge.
+function tiltBanner(games) {
+  const t = tiltSignals(games, { rating: games[0]?.userRating });
+  const advice = restAdvice(t);
+  if (!advice) return null;
+  const col = tiltColor(t.level);
+  return h('div', { class: 'card section', style: { borderColor: col, boxShadow: `0 0 0 1px ${col}33` } },
+    h('div', { style: { fontWeight: 800, color: col, fontSize: '16px', marginBottom: '4px' } }, advice.title),
+    h('div', { class: 'hint', style: { fontSize: '13px' } }, advice.text),
+    t.signals.length ? h('div', { class: 'hint tiny', style: { marginTop: '6px' } }, 'Signals: ' + t.signals.join(' · ')) : null);
+}
 
 function welcomeCard() {
   const name = store.get('profile.ownerName', '') || 'coach';
@@ -145,6 +158,8 @@ async function drawReport() {
   }
   clear(area);
   area.append(tcSwitcher(allMine, scope));
+  const tilt = tiltBanner(allMine);
+  if (tilt) area.append(tilt);
 
   const record = recordOf(myGames);
   const last10rec = recordOf(myGames.slice(0, 10));

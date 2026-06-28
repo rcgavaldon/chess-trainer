@@ -6,8 +6,10 @@ import { h, clear } from '../dom.js';
 import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
 import * as personal from './personal.js';
+import { ingestLadder, standings, mostImproved } from '../ladder.js';
+import { tiltSignals, tiltColor } from '../tilt.js';
 
-const CS = { forms: {}, group: 'ms' };
+const CS = { forms: {}, tilt: {}, group: 'ms', updating: false };
 let CTX = null, host = null;
 
 const GROUPS = [{ id: 'ms', label: 'Middle School' }, { id: 'hs', label: 'High School' }];
@@ -49,7 +51,42 @@ function draw() {
     saveBar(r),
     addStudents(r),
     r.students.length ? rosterTable(r) : h('div', { class: 'empty section' }, 'Add students above. Each gets a personal link you can text or hand out — no logins.'),
+    r.students.length ? ladderSection(r) : null,
+    r.students.length ? improvedSection(r) : null,
   );
+}
+
+function ladderSection(r) {
+  const wrap = h('div', { class: 'section' });
+  let any = false;
+  for (const g of GROUPS) {
+    const rows = standings(r, g.id);
+    if (!rows.length) continue;
+    any = true;
+    wrap.append(h('h2', { style: { marginTop: '18px' } }, `🏆 ${groupLabel(g.id)} ladder`),
+      h('div', { class: 'card' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, 'Student'), h('th', {}, 'Ladder rating'), h('th', {}, 'Games'))),
+        h('tbody', {}, ...rows.map((x) => h('tr', {},
+          h('td', {}, h('b', {}, x.rank)),
+          h('td', {}, x.name),
+          h('td', {}, h('b', { style: { fontFamily: 'var(--mono)' } }, x.L.r), x.provisional ? h('span', { class: 'hint tiny' }, ' provisional') : null),
+          h('td', { class: 'hint tiny' }, x.L.games)))))));
+  }
+  return any ? wrap : h('div', { class: 'hint tiny section' }, 'The class ladder fills in automatically once your students play rated games against each other — hit “Update class” after they do.');
+}
+
+function improvedSection(r) {
+  const rows = mostImproved(r, { windowDays: 30, minGames: 5 });
+  if (!rows.length) return null;
+  return h('div', { class: 'section' },
+    h('h2', {}, '📈 Most improved (last 30 days)'),
+    h('div', { class: 'card' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Student'), h('th', {}, 'Gain'), h('th', {}, 'Now'), h('th', {}, 'Games'))),
+      h('tbody', {}, ...rows.slice(0, 8).map((m) => h('tr', {},
+        h('td', {}, h('b', {}, m.name), h('span', { class: 'hint tiny' }, ' · ' + groupLabel(m.g))),
+        h('td', {}, h('b', { style: { color: m.delta >= 0 ? 'var(--good)' : 'var(--bad)', fontFamily: 'var(--mono)' } }, (m.delta >= 0 ? '+' : '') + m.delta)),
+        h('td', { class: 'hint tiny' }, m.to),
+        h('td', { class: 'hint tiny' }, m.games)))))));
 }
 
 // Save & share the whole class as one link (+ file backup).
@@ -106,28 +143,35 @@ function addStudents(r) {
 
 function rosterTable(r) {
   const wrap = h('div', { class: 'section' });
-  wrap.append(h('div', { class: 'row', style: { justifyContent: 'flex-end' } },
-    h('button', { class: 'btn small', onclick: () => refreshForms(r) }, '↻ Refresh ratings & form')));
+  wrap.append(h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center' } },
+    h('div', { class: 'hint tiny', id: 'cls-status' }, CS.updating ? 'Updating…' : 'Pulls each student\'s public games to update ratings, the ladder, and tilt.'),
+    h('button', { class: 'btn small', disabled: CS.updating, onclick: () => updateClass(r) }, CS.updating ? 'Updating…' : '↻ Update class')));
   for (const g of GROUPS) {
     const studs = r.students.filter((s) => (s.g || 'ms') === g.id);
     if (!studs.length) continue;
     wrap.append(h('h2', { style: { marginTop: '16px' } }, `${groupLabel(g.id)} (${studs.length})`),
       h('div', { class: 'card' }, h('table', {},
-        h('thead', {}, h('tr', {}, h('th', {}, 'Student'), h('th', {}, 'Chess.com'), h('th', {}, 'Rating'), h('th', {}, 'Recent form'), h('th', {}, ''))),
+        h('thead', {}, h('tr', {}, h('th', {}, 'Student'), h('th', {}, 'Chess.com'), h('th', {}, 'Ladder'), h('th', {}, 'Form'), h('th', {}, 'Tilt'), h('th', {}, ''))),
         h('tbody', {}, ...studs.map((s) => studentRow(r, s))))));
   }
   return wrap;
 }
 
 function studentRow(r, s) {
-  const f = CS.forms[s.u.toLowerCase()];
-  const formStr = f && f.form ? `${f.form.w}W ${f.form.l}L ${f.form.d}D` : '—';
-  const linkBtn = h('button', { class: 'btn small ghost', title: 'Copy this student\'s personal link', onclick: () => copy(studentLink(s, r.coach), linkBtn, '✓ Link') }, '🔗 Link');
+  const key = s.u.toLowerCase();
+  const f = CS.forms[key];
+  const L = (r.ladder || {})[key];
+  const t = CS.tilt[key];
+  const formStr = f && f.form ? `${f.form.w}-${f.form.l}-${f.form.d}` : '—';
+  const linkBtn = h('button', { class: 'btn small ghost', title: 'Copy this student\'s personal link', onclick: () => copy(studentLink(s, r.coach), linkBtn, '✓ Link') }, '🔗');
   return h('tr', {},
-    h('td', {}, h('b', {}, s.name || s.u)),
-    h('td', { class: 'hint tiny', style: { fontFamily: 'var(--mono)' } }, s.u),
+    h('td', {}, h('b', {}, s.name || s.u), h('div', { class: 'hint tiny', style: { fontFamily: 'var(--mono)' } }, s.u)),
     h('td', {}, f ? (f.rating ?? '—') : h('span', { class: 'hint tiny' }, '—')),
-    h('td', {}, formStr),
+    h('td', {}, L ? h('b', { style: { fontFamily: 'var(--mono)' } }, L.r) : h('span', { class: 'hint tiny' }, '—')),
+    h('td', { class: 'hint tiny' }, formStr),
+    h('td', {}, t && t.level !== 'clear'
+      ? h('span', { class: 'pill', style: { background: 'rgba(0,0,0,.001)', color: tiltColor(t.level), border: `1px solid ${tiltColor(t.level)}`, fontSize: '11px' }, title: t.signals.join('; ') }, t.level === 'red' ? '🛑 tilting' : '⚠️ watch')
+      : (t ? h('span', { class: 'hint tiny', style: { color: 'var(--good)' } }, '✓') : h('span', { class: 'hint tiny' }, '—'))),
     h('td', {}, h('div', { class: 'row', style: { gap: '4px', justifyContent: 'flex-end' } },
       linkBtn,
       h('button', { class: 'btn small ghost', onclick: () => { personal.requestImport(s.u); CTX.navigate('personal'); } }, 'Review'),
@@ -135,11 +179,30 @@ function studentRow(r, s) {
   );
 }
 
-async function refreshForms(r) {
+// Pull each student's public games → refresh rating/form, ingest roster-vs-roster games into
+// the ladder, and compute a live tilt read. One button; everything else cascades off it.
+async function updateClass(r) {
+  if (CS.updating) return;
+  CS.updating = true; draw();
   const tc = store.get('profile.timeClass', 'rapid');
+  const useTc = tc && tc !== 'all' ? tc : 'rapid';
+  const gamesByUser = {};
   for (const s of r.students) {
-    try { CS.forms[s.u.toLowerCase()] = await cc.fetchPlayerForm(s.u, { timeClass: tc && tc !== 'all' ? tc : 'rapid', months: 1, limit: 15 }); }
-    catch { CS.forms[s.u.toLowerCase()] = { username: s.u, rating: null, form: null }; }
+    const key = s.u.toLowerCase();
+    try {
+      const games = await cc.fetchRecentGames(s.u, { months: 2, timeClass: 'all', limit: 40 });
+      gamesByUser[key] = games;
+      const tcg = games.filter((g) => g.timeClass === useTc);
+      const form = { w: 0, l: 0, d: 0 };
+      for (const g of tcg.slice(0, 15)) { if (g.userResult === 'win') form.w++; else if (g.userResult === 'loss') form.l++; else form.d++; }
+      CS.forms[key] = { rating: (tcg[0] || games[0])?.userRating ?? null, form };
+      CS.tilt[key] = tiltSignals(games, { rating: (tcg[0] || games[0])?.userRating });
+    } catch { CS.forms[key] = { rating: null, form: null }; }
+    if (!CS.updating) return; // user navigated away
     draw();
   }
+  ingestLadder(r, gamesByUser);
+  saveRoster(r);
+  CS.updating = false;
+  draw();
 }
