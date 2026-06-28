@@ -5,10 +5,11 @@ import { createEngine } from './engine.js';
 import * as personal from './views/personal.js';
 import * as openings from './views/openings.js';
 import * as train from './views/train.js';
+import * as learn from './views/learn.js';
 import * as classroom from './views/classroom.js';
 import * as tournament from './views/tournament.js';
 
-const views = { personal, openings, train, class: classroom, tournament };
+const views = { personal, openings, train, learn, class: classroom, tournament };
 
 // ---- accent theme ----
 const ACCENTS = {
