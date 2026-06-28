@@ -10,6 +10,7 @@ import {
   suggestOpenings, epdOf, findOpeningMistakes, fetchExplorer, bookContinuations,
 } from '../openings.js';
 import { whatYouFace, scoutPeers } from '../peers.js';
+import { explainMove } from '../explain.js';
 
 const OS = { username: '', games: [], correlation: null, posIndex: null, mode: 'yours', loaded: false };
 let CTX = null, host = null;
@@ -31,6 +32,7 @@ function draw() {
   if (OS.mode === 'explore') drawExplore();
   else if (OS.mode === 'mistakes') drawMistakes();
   else if (OS.mode === 'scout') drawScout();
+  else if (OS.mode === 'drill') drawDrill();
   else { if (!OS.loaded && OS.username) loadYours(); else drawYours(); }
 }
 
@@ -41,21 +43,24 @@ function controls() {
   return h('div', { class: 'controls' },
     h('div', { class: 'field username' }, h('label', {}, 'Username'), user),
     h('div', { class: 'field' }, h('label', { class: 'tiny' }, ' '), h('button', { class: 'btn', onclick: () => { OS.username = user.value.trim(); OS.loaded = false; draw(); } }, 'Load')),
-    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('mistakes', 'Your mistakes'), tab('scout', 'Scout'), tab('explore', 'Explore all'))),
+    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('drill', '🎯 Train lines'), tab('mistakes', 'Your mistakes'), tab('scout', 'Scout'), tab('explore', 'Explore all'))),
   );
+}
+
+async function ensureCorrelation() {
+  if (OS.loaded) return;
+  await loadOpenings();
+  OS.games = await getGames(OS.username, { months: 8, timeClass: 'all', limit: 50 });
+  OS.correlation = await correlateGames(OS.games);
+  OS.posIndex = buildGamePositionIndex(OS.games);
+  OS.loaded = true;
 }
 
 async function loadYours() {
   const body = document.getElementById('op-body');
   clear(body).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your games and matching openings…'));
-  try {
-    await loadOpenings();
-    OS.games = await getGames(OS.username, { months: 8, timeClass: 'all', limit: 50 });
-    OS.correlation = await correlateGames(OS.games);
-    OS.posIndex = buildGamePositionIndex(OS.games);
-    OS.loaded = true;
-    drawYours();
-  } catch (e) { clear(body).append(h('div', { class: 'empty' }, 'Could not load. ', h('span', { class: 'tiny' }, e.message))); }
+  try { await ensureCorrelation(); drawYours(); }
+  catch (e) { clear(body).append(h('div', { class: 'empty' }, 'Could not load. ', h('span', { class: 'tiny' }, e.message))); }
 }
 
 async function drawYours() {
@@ -262,6 +267,207 @@ function renderExMoves(panel, conts, live, fen) {
         r.yours ? h('div', { class: 'tiny', style: { color: 'var(--accent-2)', fontWeight: 700, marginTop: '2px' } }, `★ you've played this in ${r.yours}`) : null),
       h('div', { class: 'ex-meta' }, r.lv ? meta.filter(Boolean).map((x) => h('div', {}, x)) : null)));
   }
+}
+
+// ============================================================
+// OPENING TRAINER — drill YOUR repertoire lines with spaced repetition
+// ============================================================
+const DR = { lines: null, line: null, chess: null, ground: null, ply: 0, mistakes: 0, done: 0, userColor: 'white', busy: false };
+
+// Extend a known book line down its main line so there's enough to drill (~14 plies).
+async function extendLine(baseSans, maxPlies) {
+  const c = new Chess();
+  for (const s of baseSans) { try { c.move(s); } catch { break; } }
+  let guard = 0;
+  while (c.history().length < maxPlies && guard++ < 30) {
+    const uciLine = c.history({ verbose: true }).map((m) => m.from + m.to + (m.promotion || ''));
+    const conts = await bookContinuations(uciLine);
+    if (!conts.length) break;
+    const top = conts[0];
+    try { c.move({ from: top.uci.slice(0, 2), to: top.uci.slice(2, 4), promotion: top.uci[4] }); } catch { break; }
+  }
+  return { sans: c.history(), uci: c.history({ verbose: true }).map((m) => m.from + m.to + (m.promotion || '')) };
+}
+
+async function buildRepertoireLines(correlation) {
+  const out = [];
+  for (const o of correlation.slice(0, 14)) {
+    const baseSans = (o.deepest?.san || []).slice();
+    if (baseSans.length < 2) continue;
+    const color = o.asWhite >= o.asBlack ? 'white' : 'black';
+    const ext = await extendLine(baseSans, 14);
+    if (ext.sans.length < 4) continue;
+    out.push({
+      id: color + '|' + ext.uci.join(' '), family: o.family, name: o.deepest?.name || o.family,
+      eco: o.deepest?.eco || o.eco, color, sans: ext.sans, uci: ext.uci, games: o.games, scorePct: o.scorePct,
+    });
+  }
+  return out;
+}
+
+// --- spaced repetition (SM-2 lite), keyed by line id ---
+const srsAll = () => store.get('opening.srs', {});
+function gradeLine(id, correct, total) {
+  const srs = srsAll();
+  const s = srs[id] || { ease: 2.3, reps: 0 };
+  const q = total ? correct / total : 1;
+  if (q >= 0.9) { s.reps = (s.reps || 0) + 1; s.ease = Math.min(2.8, s.ease + 0.1); }
+  else if (q >= 0.6) { s.reps = Math.max(1, s.reps || 0); }
+  else { s.reps = 0; s.ease = Math.max(1.5, s.ease - 0.2); }
+  const days = s.reps === 0 ? 0 : s.reps === 1 ? 1 : Math.round((s.reps - 1) * s.ease);
+  s.due = Date.now() + days * 86400000;
+  s.last = { correct, total, ts: Date.now() };
+  srs[id] = s; store.set('opening.srs', srs);
+  return days;
+}
+const isDue = (id) => { const s = srsAll()[id]; return !s || (s.due || 0) <= Date.now(); };
+
+async function drawDrill() {
+  const body = document.getElementById('op-body');
+  if (!OS.username) { clear(body).append(h('div', { class: 'empty' }, 'Enter your Chess.com username above to train your lines.')); return; }
+  clear(body).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Building your repertoire from your games…'));
+  try {
+    await ensureCorrelation();
+    if (!DR.lines) DR.lines = await buildRepertoireLines(OS.correlation);
+  } catch (e) { clear(body).append(h('div', { class: 'empty' }, 'Could not build your lines. ', h('span', { class: 'tiny' }, e.message))); return; }
+  clear(body);
+  if (!DR.lines.length) { body.append(h('div', { class: 'empty' }, 'Not enough recognized openings in your games yet to build drills. Play a few more rated games and come back.')); return; }
+
+  const srs = srsAll();
+  const due = DR.lines.filter((l) => isDue(l.id));
+  const learned = DR.lines.filter((l) => srs[l.id] && (srs[l.id].reps || 0) > 0).length;
+
+  body.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)' } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
+      h('div', {},
+        h('div', { style: { fontWeight: 800, fontSize: '17px' } }, '🎯 Train your opening lines'),
+        h('div', { class: 'hint tiny' }, `Built from the openings you actually play. Play the board moves you'd make — I'll tell you when you stray from theory and why. ${learned}/${DR.lines.length} lines learned · ${due.length} due today.`)),
+      due.length ? h('button', { class: 'btn', onclick: () => startLine(due[0], due) }, `Start review (${due.length}) →`) : h('span', { class: 'pill', style: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } }, '✓ all caught up'))));
+
+  body.append(h('div', { class: 'card' }, h('table', {},
+    h('thead', {}, h('tr', {}, h('th', {}, 'Line'), h('th', {}, 'You play'), h('th', {}, 'Score'), h('th', {}, 'Status'), h('th', {}, ''))),
+    h('tbody', {}, ...DR.lines.map((l) => {
+      const s = srs[l.id];
+      const status = !s ? h('span', { class: 'hint tiny' }, 'new') : isDue(l.id) ? h('span', { style: { color: 'var(--warn)' } }, 'due') : h('span', { style: { color: 'var(--good)' } }, `learned ×${s.reps}`);
+      return h('tr', {},
+        h('td', {}, h('b', {}, l.name), h('div', { class: 'hint tiny', style: { fontFamily: 'var(--mono)' } }, l.sans.slice(0, 6).join(' ') + '…')),
+        h('td', { class: 'hint tiny' }, `${l.color === 'white' ? '♔ White' : '♚ Black'} · ${l.games}×`),
+        h('td', {}, scoreSpan(l.scorePct)),
+        h('td', {}, status),
+        h('td', {}, h('button', { class: 'btn small ghost', onclick: () => startLine(l, [l]) }, 'Drill')));
+    })))));
+}
+
+let DRQ = [];
+function startLine(line, queue) {
+  DRQ = (queue || [line]).slice();
+  runLine(line);
+}
+
+function runLine(line) {
+  DR.line = line; DR.ply = 0; DR.mistakes = 0; DR.done = 0; DR.userColor = line.color; DR.busy = false;
+  DR.chess = new Chess();
+  renderDrillBoard();
+  advance();
+}
+
+function renderDrillBoard() {
+  clear(host);
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: () => { OS.mode = 'drill'; draw(); } }, '← All lines'),
+      h('div', { class: 'hint', style: { fontFamily: 'var(--mono)' } }, DR.line.eco)),
+    h('h1', { style: { marginTop: '6px' } }, DR.line.name),
+    h('div', { class: 'hint tiny' }, `You're ${DR.userColor === 'white' ? 'White ♔' : 'Black ♚'} — play the moves you'd make. ${DR.line.sans.length} moves in this line.`));
+  const boardEl = h('div', { id: 'dr-board' });
+  const coach = h('div', { class: 'explain-box', id: 'dr-coach', style: { minHeight: '90px' } });
+  const prog = h('div', { id: 'dr-prog', class: 'card', style: { marginTop: '10px' } });
+  host.append(h('div', { class: 'trainer-grid section' },
+    h('div', { class: 'trainer-coach' }, h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, '♟ Coach'), coach, prog),
+    h('div', { class: 'board-wrap trainer-board' }, boardEl),
+    h('div', { class: 'trainer-side' })));
+  DR.ground = createBoard(boardEl, { orientation: DR.userColor, fen: DR.chess.fen(), movable: { free: false, color: undefined, dests: new Map() } });
+  setCoach('Get ready…', DR.userColor === 'black' ? 'White moves first — watch, then it\'s your turn.' : 'You\'re White — make your first move.');
+  updateProg();
+}
+
+function setCoach(title, body, color) {
+  const box = document.getElementById('dr-coach'); if (!box) return;
+  clear(box).append(h('div', { style: { fontWeight: 700, color: color || 'var(--text)', marginBottom: '4px' } }, title),
+    h('div', { class: 'hint', style: { fontSize: '13px' } }, body));
+}
+function updateProg() {
+  const el = document.getElementById('dr-prog'); if (!el) return;
+  const moves = DR.chess.history();
+  clear(el).append(
+    h('div', { class: 'hint tiny' }, `Move ${Math.min(DR.ply + 1, DR.line.sans.length)} of ${DR.line.sans.length} · ${DR.done} right · ${DR.mistakes} slip${DR.mistakes === 1 ? '' : 's'}`),
+    h('div', { class: 'hint tiny', style: { fontFamily: 'var(--mono)', marginTop: '4px' } }, moves.map((m, i) => (i % 2 === 0 ? Math.floor(i / 2) + 1 + '.' : '') + m).join(' ')));
+}
+
+function boardState(movable) {
+  const last = DR.chess.history({ verbose: true }).slice(-1)[0];
+  DR.ground.set({
+    fen: DR.chess.fen(), turnColor: DR.chess.turn() === 'w' ? 'white' : 'black',
+    lastMove: last ? [last.from, last.to] : undefined, check: DR.chess.isCheck(), orientation: DR.userColor,
+    movable: { free: false, color: movable ? DR.userColor : undefined, dests: movable ? legalDests(DR.chess) : new Map(), events: { after: onUserMove } },
+  });
+}
+
+function advance() {
+  if (DR.ply >= DR.line.sans.length) return finishLine();
+  const turnColor = DR.chess.turn() === 'w' ? 'white' : 'black';
+  if (turnColor !== DR.userColor) {
+    DR.busy = true; boardState(false);
+    setTimeout(() => {
+      try { DR.chess.move(DR.line.sans[DR.ply]); } catch {}
+      DR.ply++; updateProg();
+      DR.busy = false; advance();
+    }, 520);
+  } else {
+    boardState(true);
+    setCoach('Your move', 'Play the move you think is theory here.', 'var(--accent-2)');
+  }
+}
+
+function onUserMove(orig, dest) {
+  if (DR.busy) return;
+  const expected = DR.line.sans[DR.ply];
+  const fenBefore = DR.chess.fen();
+  const clone = new Chess(fenBefore);
+  let mv; try { mv = clone.move({ from: orig, to: dest, promotion: 'q' }); } catch { mv = null; }
+  if (!mv) { boardState(true); return; }
+  DR.busy = true;
+  if (mv.san === expected) {
+    DR.chess.move({ from: orig, to: dest, promotion: 'q' }); DR.done++; DR.ply++;
+    const why = explainMove({ fenBefore, fenAfter: DR.chess.fen(), move: mv, label: 'Best', ply: DR.ply, history: DR.chess.history({ verbose: true }), bestMoveUci: null }).text;
+    setCoach(`✓ ${mv.san} — correct!`, why, 'var(--good)');
+    updateProg(); DR.busy = false; advance();
+  } else {
+    DR.mistakes++;
+    const exp = new Chess(fenBefore); const em = exp.move(expected);
+    const why = explainMove({ fenBefore, fenAfter: exp.fen(), move: em, label: 'Best', ply: DR.ply + 1, history: exp.history({ verbose: true }), bestMoveUci: null }).text;
+    setCoach(`✗ Not ${mv.san} — the move here is ${expected}`, why, 'var(--bad)');
+    DR.chess.move(expected); DR.ply++;
+    boardState(false); showArrow(DR.ground, em.from + em.to, 'red');
+    setTimeout(() => { clearArrows(DR.ground); updateProg(); DR.busy = false; advance(); }, 1600);
+  }
+}
+
+function finishLine() {
+  boardState(false);
+  const total = DR.done + DR.mistakes;
+  const days = gradeLine(DR.line.id, DR.done, total);
+  const pctRight = total ? Math.round(DR.done / total * 100) : 100;
+  const nextDue = days === 0 ? 'today (keep at it)' : days === 1 ? 'tomorrow' : `in ${days} days`;
+  DRQ.shift();
+  const more = DRQ.length ? DRQ[0] : null;
+  setCoach(DR.mistakes === 0 ? '🎉 Perfect line!' : `Line complete — ${pctRight}% theory`,
+    `${DR.done}/${total} moves matched the main line. ${DR.mistakes === 0 ? 'You know this one cold.' : 'The slips are where to focus.'} Next review: ${nextDue}.`, DR.mistakes === 0 ? 'var(--good)' : 'var(--warn)');
+  const el = document.getElementById('dr-prog'); if (!el) return;
+  clear(el).append(h('div', { class: 'row', style: { gap: '8px' } },
+    h('button', { class: 'btn', onclick: () => runLine(DR.line) }, '↻ Again'),
+    more ? h('button', { class: 'btn', onclick: () => runLine(more) }, 'Next line →') : null,
+    h('button', { class: 'btn ghost', onclick: () => { OS.mode = 'drill'; draw(); } }, 'Done')));
 }
 
 function renderLine() {
