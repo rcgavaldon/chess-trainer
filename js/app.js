@@ -118,14 +118,32 @@ function draw(route) {
 if (!store.storageAvailable()) {
   showEngineStatus('Heads up: this browser is blocking storage (private mode?) — progress won\'t be saved.');
 }
-// Pre-configured link support: ?u=username&name=Robert&accent=green sets you up instantly.
+// Pre-configured link support: ?u=username&name=Robert&accent=green&role=&g=&coach= sets you up instantly.
 const _params = new URLSearchParams(location.search);
 if (_params.get('u')) {
   store.set('profile.username', _params.get('u').trim());
   if (_params.get('name')) store.set('profile.ownerName', _params.get('name').trim());
   if (_params.get('accent')) store.set('profile.accent', _params.get('accent').trim());
   if (_params.get('role')) { store.set('profile.role', _params.get('role').trim()); store.set('profile.welcomeSeen', false); }
+  if (_params.get('g')) store.set('profile.group', _params.get('g').trim());
+  if (_params.get('coach')) store.set('profile.coach', _params.get('coach').trim());
   store.set('profile.onboarded', true);
+}
+// Coach restoring their whole class on any device — the roster rides inside the link (?class=<base64>).
+const _cls = _params.get('class');
+if (_cls) {
+  try {
+    const roster = JSON.parse(decodeURIComponent(escape(atob(_cls))));
+    if (roster && Array.isArray(roster.students)) {
+      store.set('class.roster', roster);
+      if (!store.get('profile.role')) store.set('profile.role', 'coach');
+      if (roster.coach && !store.get('profile.username')) {
+        store.set('profile.username', roster.coach);
+        store.set('profile.ownerName', roster.coachName || 'Coach');
+        store.set('profile.onboarded', true);
+      }
+    }
+  } catch { /* malformed class blob — ignore */ }
 }
 
 updateOwnerBadge();
