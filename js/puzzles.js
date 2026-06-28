@@ -134,24 +134,39 @@ export async function loadFullShard(theme) {
   return out;
 }
 
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
 // Load curated puzzles for a theme from a repo-hosted shard. Returns up to `count`
-// puzzles near `targetRating` (if given), or null if no shard is hosted for the theme.
-export async function loadThemeShard(theme, { count = 6, targetRating = null } = {}) {
+// puzzles near `targetRating` (if given), excluding any ids in `exclude`, or null if
+// no shard is hosted. Truly randomized each call, so sets feel fresh.
+export async function loadThemeShard(theme, { count = 6, targetRating = null, exclude = null } = {}) {
   let rows;
   try { rows = await fetchTimeout('puzzles/' + theme + '.json', 8000); }
   catch { return null; } // no shard hosted (404) or unreadable
   if (!Array.isArray(rows) || !rows.length) return null;
-  let pool = rows;
-  if (targetRating) pool = rows.slice().sort((a, b) => Math.abs((a.rating || 1500) - targetRating) - Math.abs((b.rating || 1500) - targetRating)).slice(0, count * 4);
-  // shuffle (deterministic-free) and take `count`, building puzzle objects defensively
-  const picked = [];
-  const order = pool.map((_, i) => i);
-  for (let i = order.length - 1; i > 0; i--) { const j = (i * 2654435761) % (i + 1); [order[i], order[j]] = [order[j], order[i]]; }
-  for (const idx of order) {
-    if (picked.length >= count) break;
-    try { picked.push(puzzleFromShard(pool[idx])); } catch {}
+  let pool = exclude && exclude.size ? rows.filter((r) => !exclude.has(r.id)) : rows.slice();
+  if (!pool.length) pool = rows.slice(); // everything's been seen → allow repeats rather than empty
+  if (targetRating) {
+    // keep a window of the closest-rated puzzles, then randomize within it (adaptive but varied)
+    pool = pool.sort((a, b) => Math.abs((a.rating || 1500) - targetRating) - Math.abs((b.rating || 1500) - targetRating)).slice(0, Math.max(count * 6, 30));
   }
+  shuffle(pool);
+  const picked = [];
+  for (const row of pool) { if (picked.length >= count) break; try { picked.push(puzzleFromShard(row)); } catch {} }
   return picked.length ? picked : null;
+}
+
+// Pull a mixed, fresh batch across several themes (for endless practice). Adaptive to
+// each theme's mastery rating; excludes seen ids; randomized.
+export async function loadMixedBatch(themes, { count = 10, srs = null, exclude = null } = {}) {
+  const per = Math.max(2, Math.ceil(count / themes.length));
+  const out = [];
+  for (const th of themes) {
+    const target = (srs?.themes?.[th]?.rating || 1200) + 40;
+    const got = await loadThemeShard(th, { count: per, targetRating: target, exclude }).catch(() => null);
+    if (got) out.push(...got);
+  }
+  return shuffle(out).slice(0, count);
 }
 
 // ============================================================

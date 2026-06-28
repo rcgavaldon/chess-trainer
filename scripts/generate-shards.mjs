@@ -48,14 +48,23 @@ import zlib from 'node:zlib';
 // ---- config ---------------------------------------------------------------
 
 const THEMES = [
+  // core tactics
   'fork', 'pin', 'skewer', 'hangingPiece', 'backRankMate',
   'discoveredAttack', 'doubleCheck', 'deflection', 'sacrifice',
-  'mateIn1', 'mateIn2', 'mateIn3', 'endgame', 'advancedPawn', 'trappedPiece',
+  'mateIn1', 'mateIn2', 'mateIn3', 'advancedPawn', 'trappedPiece',
+  // more tactical motifs (variety)
+  'attraction', 'clearance', 'interference', 'intermezzo', 'quietMove',
+  'xRayAttack', 'capturingDefender', 'defensiveMove', 'promotion', 'zugzwang',
+  'kingsideAttack', 'exposedKing', 'smotheredMate',
+  // endgames (Robert's weakness — give them depth)
+  'endgame', 'rookEndgame', 'pawnEndgame', 'queenEndgame', 'bishopEndgame', 'knightEndgame', 'queenRookEndgame',
+  // phase
+  'opening', 'middlegame',
 ];
 const THEME_SET = new Set(THEMES);
 
-// rating buckets: edges -> 6 buckets between 800 and 2000
-const BUCKET_EDGES = [800, 1000, 1200, 1400, 1600, 1800, 2000];
+// rating buckets: wider spread (600..2400) so adaptive difficulty + storm ramping have range
+const BUCKET_EDGES = [600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400];
 
 function parseArgs(argv) {
   const a = { input: null, out: null, per: 150, minPlays: 500, maxDev: 100 };
