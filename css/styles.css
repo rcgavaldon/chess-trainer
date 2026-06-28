@@ -245,6 +245,20 @@ details.more > summary::before { content: '▸ '; }
 details.more[open] > summary::before { content: '▾ '; }
 details.more > summary:hover { color: var(--text); }
 
+/* ---- first-run intro reveal ---- */
+.intro-backdrop { position: fixed; inset: 0; z-index: 9999; background: rgba(6,10,8,.92); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.intro-card { max-width: 460px; width: 100%; text-align: center; }
+.intro-step { animation: introFade .5s ease; }
+@keyframes introFade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.intro-lead { font-size: 14px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.intro-big { font-size: 34px; font-weight: 800; line-height: 1.15; }
+.intro-sub { font-size: 15px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+.intro-dots { display: flex; gap: 7px; justify-content: center; margin-top: 26px; }
+.intro-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.18); transition: background .2s; }
+.intro-dot.on { background: var(--accent); }
+.intro-skip { position: absolute; top: 18px; right: 20px; background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; }
+.intro-skip:hover { color: var(--text); }
+
 /* ---- time-control tabs ---- */
 .tc-tabs { display: flex; gap: 6px; flex-wrap: wrap; background: var(--surface-2, #131a16); padding: 5px; border-radius: 12px; border: 1px solid var(--line); }
 .tc-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 9px; border: none; background: transparent; color: var(--muted); font-weight: 700; font-size: 14px; cursor: pointer; transition: background .12s, color .12s; }

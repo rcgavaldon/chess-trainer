@@ -6,7 +6,8 @@ import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
 import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnapshot } from '../review.js';
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
-import { computeDimensions, dailyPlan, narratives, focusAreas } from '../report.js';
+import { computeDimensions, dailyPlan, narratives, focusAreas, superAndWeak } from '../report.js';
+import { playIntro } from '../intro.js';
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
 import { computeBadges, newlyEarned } from '../achievements.js';
 import { LESSONS } from '../lessons.js';
@@ -178,6 +179,20 @@ async function drawReport() {
       onGo: (f) => CTX.navigate(f.dest === 'openings' ? 'openings' : 'train'),
     });
     area.append(gamesDetails(), breakdownDetails(analyses, myGames));
+    // First-run reveal: the 60-second "your chess, decoded" intro, once.
+    if (!store.get('profile.introSeen')) {
+      const { superpower, weakness } = superAndWeak(dims);
+      const fa = focusAreas(dims);
+      const topFocus = fa.find((f) => f.primary) || fa[0];
+      playIntro({
+        name: store.get('profile.ownerName', ''),
+        games: analyses.length, rating: myGames[0]?.userRating || I.ratingAvg,
+        recordStr: `${record.w}-${record.l}-${record.d}`,
+        superName: superpower && superpower.name, superBlurb: 'Your strongest area — lean on it while you shore up the rest.',
+        weakName: weakness && weakness.name, weakWhy: topFocus && topFocus.why,
+        focusLabel: topFocus && topFocus.label, planGame: today.game,
+      }, () => store.set('profile.introSeen', true));
+    }
   } else if (myGames.length) {
     // INSTANT value (no analysis needed) so a first-timer sees something in <2s, then the
     // coaching insights build in the background instead of blocking on a 90s spinner.
