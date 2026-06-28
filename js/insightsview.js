@@ -45,6 +45,41 @@ function trendSvg(trend) {
 
 const snap = (k, v, sub) => h('div', { class: 'snap' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v), sub != null ? h('div', { class: 'sub' }, sub) : null);
 
+// Rating-over-time (ELO history) for the selected time control — built from each game's
+// rating. points = [{ rating }] in chronological order (oldest → newest).
+function eloHistorySvg(points) {
+  const data = (points || []).filter((p) => p.rating != null);
+  if (data.length < 3) return '<div class="hint tiny">Play a few more games in this category to chart your rating.</div>';
+  const W = 600, H = 150, padT = 16, padB = 6, padX = 4;
+  const rs = data.map((p) => p.rating);
+  let lo = Math.min(...rs), hi = Math.max(...rs);
+  if (hi - lo < 50) { const m = (hi + lo) / 2; lo = m - 25; hi = m + 25; }
+  const span = hi - lo; lo -= span * 0.18; hi += span * 0.18;
+  const n = data.length, x = (i) => padX + i * (W - 2 * padX) / (n - 1), y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const pts = data.map((p, i) => `${x(i).toFixed(1)},${y(p.rating).toFixed(1)}`).join(' ');
+  const area = `${x(0).toFixed(1)},${H - padB} ${pts} ${x(n - 1).toFixed(1)},${H - padB}`;
+  const peakV = Math.max(...rs), peakI = rs.lastIndexOf(peakV), cur = rs[n - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+    <polygon points="${area}" fill="var(--accent)" fill-opacity="0.10"/>
+    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="${x(peakI).toFixed(1)}" cy="${y(peakV).toFixed(1)}" r="3" fill="var(--accent)"/>
+    <text x="${Math.min(W - 30, Math.max(28, x(peakI))).toFixed(1)}" y="${(y(peakV) - 6).toFixed(1)}" fill="#9aa7b1" font-size="10" font-weight="600" text-anchor="middle">peak ${peakV}</text>
+    <circle cx="${x(n - 1).toFixed(1)}" cy="${y(cur).toFixed(1)}" r="3.6" fill="var(--accent)" stroke="#0b0f0c" stroke-width="1.2"/></svg>`;
+}
+
+const LEVEL_COLOR = { weak: 'var(--bad)', ok: 'var(--warn)', strong: 'var(--good)' };
+const TONE_PILL = { focus: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' }, strength: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } };
+function focusRow(f, onGo) {
+  const badge = f.tone === 'keep' ? h('span', { class: 'hint tiny' }, f.badge) : h('span', { class: 'pill', style: TONE_PILL[f.tone] }, f.badge);
+  return h('div', { class: 'focus-row' },
+    h('div', { class: 'focus-icon' }, f.icon),
+    h('div', { style: { minWidth: 0 } },
+      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' } }, h('b', {}, f.label), badge),
+      h('div', { class: 'track', style: { margin: '6px 0' } }, h('div', { class: 'fill', style: { width: f.score + '%', background: LEVEL_COLOR[f.level] } })),
+      h('div', { class: 'hint', style: { fontSize: '13px' } }, f.why)),
+    h('button', { class: 'btn small' + (f.primary ? '' : ' ghost'), style: { alignSelf: 'center' }, onclick: () => onGo(f) }, f.dest === 'openings' ? 'Study →' : 'Train →'));
+}
+
 function narrCard(title, color, items, onTrain) {
   return h('div', { class: 'card' }, h('div', { style: { fontWeight: 700, color, marginBottom: '12px', fontSize: '15px' } }, title),
     h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, ...items.map((it) =>
@@ -62,23 +97,34 @@ export function renderCleanReport(host, R) {
     snap('Accuracy', R.accAvg != null ? h('span', { style: { color: accColor(R.accAvg) } }, pct(R.accAvg)) : '—', h('span', { style: { color: arrowColor } }, R.accDelta ? `${R.accDelta > 0 ? '+' : ''}${Math.round(R.accDelta)}% last 10` : 'steady')),
     snap('Last 10', R.last10 ? `${R.last10.w}-${R.last10.l}-${R.last10.d}` : '—', R.last10 ? `${winPctOf(R.last10)}% score` : '')));
 
+  // Rating history (ELO over time) — what kids actually want to watch climb.
+  if (R.eloPoints && R.eloPoints.length >= 3) {
+    host.append(h('div', { class: 'card section' },
+      h('h2', {}, `Your ${R.scope ? R.scope + ' ' : ''}rating over time`),
+      h('div', { html: eloHistorySvg(R.eloPoints) }),
+      h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Each step is a game in this category, oldest on the left. The dot on the right is where you are now.')));
+  }
+
+  // The centrepiece: where to focus, ranked and plain-spoken.
+  if (R.focus && R.focus.length) {
+    host.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18)' } },
+      h('h2', {}, '🎯 Where to focus'),
+      h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '6px' } }, 'Your biggest chances to improve, in order. Start at the top — do a little each day.'),
+      ...R.focus.slice(0, 5).map((f) => focusRow(f, R.onGo || (() => {})))));
+  }
+
+  // Quick wins to feel good about.
+  host.append(narrCard('✅ What\'s going well', 'var(--good)', R.narr.goingWell, null));
+
+  // Skills overview (radar) — visual, secondary to the focus list.
   const best = bestDim(R.dims), weak = worstDim(R.dims);
   host.append(h('div', { class: 'card section' },
     h('h2', {}, 'Your skills at a glance'),
-    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '2px' } }, 'Six core skills, each scored 0–100 from your own games. The further a point reaches the rim, the stronger that skill. The dented-in spoke is where you\'ll gain the most.'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '2px' } }, 'Six core skills, each scored 0–100 from your own games. The further a point reaches the rim, the stronger that skill.'),
     h('div', { html: radarSvg(R.dims) }),
     h('div', { class: 'chip-row', style: { justifyContent: 'center', marginTop: '4px' } },
       h('span', { class: 'pill', style: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } }, `★ Strongest: ${best.name} ${best.score}`),
       h('span', { class: 'pill', style: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' } }, `⚑ Work on: ${weak.name} ${weak.score}`))));
-
-  host.append(h('div', { class: 'review section', style: { gridTemplateColumns: '1fr 1fr', gap: '14px' } },
-    narrCard('✅ What\'s going well', 'var(--good)', R.narr.goingWell, null),
-    narrCard('🎯 What to work on', 'var(--warn)', R.narr.toImprove, R.onTrain)));
-
-  host.append(h('div', { class: 'card section' },
-    h('h2', {}, 'Accuracy trend'),
-    h('div', { html: trendSvg(R.accTrend) }),
-    h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Each dot is a game — green win, red loss. Shaded band = your last 10.')));
 }
 
 function stat(k, v, sub) {

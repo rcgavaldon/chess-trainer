@@ -6,7 +6,7 @@ import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
 import { analyzeGame, buildWeaknessProfile, suggestedPuzzleThemes, weaknessSnapshot } from '../review.js';
 import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '../insights.js';
-import { computeDimensions, dailyPlan, narratives } from '../report.js';
+import { computeDimensions, dailyPlan, narratives, focusAreas } from '../report.js';
 import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
@@ -116,14 +116,13 @@ function scopeAnalyses(myGames) {
 function tcSwitcher(allMine, scope) {
   const counts = {}; for (const g of allMine) counts[g.timeClass] = (counts[g.timeClass] || 0) + 1;
   const tcs = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
-  const row = h('div', { class: 'chip-row' });
+  const tabs = h('div', { class: 'tc-tabs' });
   for (const t of [...tcs, 'all']) {
-    row.append(h('button', { class: 'chip' + (scope === t ? ' active-chip' : ''), onclick: () => { S.timeClass = t; drawReport(); } },
-      t === 'all' ? `All (${allMine.length})` : `${TC_LABEL[t] || t} (${counts[t]})`));
+    tabs.append(h('button', { class: 'tc-tab' + (scope === t ? ' active' : ''), onclick: () => { S.timeClass = t; drawReport(); } },
+      t === 'all' ? 'All' : (TC_LABEL[t] || t),
+      h('span', { class: 'tc-count' }, String(t === 'all' ? allMine.length : counts[t]))));
   }
-  return h('div', { class: 'section' },
-    h('div', { class: 'hint tiny', style: { marginBottom: '6px', fontWeight: 600 } }, 'Time control — rapid, blitz and daily are really different games, so your report is scoped to one at a time:'),
-    row);
+  return h('div', {}, tabs);
 }
 
 async function drawReport() {
@@ -133,7 +132,8 @@ async function drawReport() {
   const allMine = S.games.filter((g) => (g.username || '').toLowerCase() === u);
   const scope = S.timeClass || primaryTC(allMine);
   S.timeClass = scope;
-  const myGames = scope === 'all' ? allMine : allMine.filter((g) => g.timeClass === scope);
+  const scopedAll = scope === 'all' ? allMine : allMine.filter((g) => g.timeClass === scope);
+  const myGames = scopedAll.slice(0, 50); // the last 50 games in THIS category
   const scopeName = TC_LABEL[scope] || scope;
 
   // first-time: auto-analyze a batch of the SCOPED games so the report is real & on-topic
@@ -156,10 +156,13 @@ async function drawReport() {
     const today = dailyPlan(dims, I, I.openings);
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
+    const eloPoints = myGames.filter((g) => g.userRating != null).slice().reverse().map((g) => ({ rating: g.userRating, date: g.dateUTC }));
     renderCleanReport(area, {
-      rating: I.ratingAvg || myGames[0]?.userRating, scope: scope === 'all' ? null : scopeName,
+      rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
       record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
+      eloPoints, focus: focusAreas(dims),
       onTrain: () => CTX.navigate('train'),
+      onGo: (f) => CTX.navigate(f.dest === 'openings' ? 'openings' : 'train'),
     });
     area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2), var(--shadow-sm)' } },
       h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, today.rest ? '😌 Take a lighter day' : '🎯 Today\'s plan'),
@@ -345,7 +348,7 @@ async function doImport() {
   const area = document.getElementById('report-area');
   if (area) clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your last 50 games…'));
   try {
-    const games = await cc.fetchRecentGames(username, { months: 8, timeClass: 'all', limit: 50 });
+    const games = await cc.fetchRecentGames(username, { months: 12, timeClass: 'all', limit: 140 });
     games.forEach((g) => (g.username = username));
     S.games = games;
     S.timeClass = null; // re-pick the primary time control for this player

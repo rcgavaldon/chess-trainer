@@ -245,6 +245,19 @@ details.more > summary::before { content: '▸ '; }
 details.more[open] > summary::before { content: '▾ '; }
 details.more > summary:hover { color: var(--text); }
 
+/* ---- time-control tabs ---- */
+.tc-tabs { display: flex; gap: 6px; flex-wrap: wrap; background: var(--surface-2, #131a16); padding: 5px; border-radius: 12px; border: 1px solid var(--line); }
+.tc-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 9px; border: none; background: transparent; color: var(--muted); font-weight: 700; font-size: 14px; cursor: pointer; transition: background .12s, color .12s; }
+.tc-tab:hover { color: var(--text); }
+.tc-tab.active { background: var(--accent); color: var(--accent-ink); }
+.tc-count { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 20px; background: rgba(255,255,255,.08); color: inherit; font-family: var(--mono); }
+.tc-tab.active .tc-count { background: rgba(0,0,0,.18); }
+
+/* ---- focus rows (Where to focus) ---- */
+.focus-row { display: grid; grid-template-columns: 36px 1fr auto; gap: 12px; align-items: start; padding: 13px 0; border-top: 1px solid var(--line); }
+.focus-row:first-of-type { border-top: none; }
+.focus-icon { font-size: 22px; line-height: 1.2; text-align: center; }
+
 /* ---- opening explorer ---- */
 .ex-move { display: grid; grid-template-columns: 58px 1fr 90px; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; transition: background .12s; }
 .ex-move:hover { background: var(--surface-2); }

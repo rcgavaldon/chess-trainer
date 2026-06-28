@@ -97,6 +97,40 @@ export function narratives(dims, trendDelta) {
   return { goingWell: goingWell.slice(0, 3), toImprove };
 }
 
+// Aimchess-style prioritised, labelled "where to focus" list — kid-simple language,
+// worst area first, each tied to a concrete action. Phases (openings/middlegame/endgame)
+// lead; skills (tactics, clock, converting, defending) are interspersed.
+const AREA = {
+  openings: { label: 'Openings', icon: '📖', dest: 'openings',
+    why: (s) => s < 60 ? 'You\'re coming out of the opening worse than you should. Learning your first ~8 moves is the fastest fix.' : 'Solid starts — tighten one line for White and one for Black.' },
+  tactics: { label: 'Middlegame tactics', icon: '⚔️', dest: 'train', theme: 'fork',
+    why: (s) => s < 60 ? 'This is where most games are decided. You\'re dropping pieces or missing shots — daily tactics fixes the most points.' : 'Keep your tactics sharp so you don\'t miss the winning shot.' },
+  endgame: { label: 'Endgames', icon: '♟️', dest: 'train', theme: 'endgame',
+    why: (s) => s < 60 ? 'When few pieces are left, your technique slips. Learn king-and-pawn, the opposition, and basic rook endings.' : 'Good endings — keep drilling rook endgames, the most common of all.' },
+  advantage: { label: 'Closing out wins', icon: '🏁', dest: 'train', theme: 'endgame',
+    why: (s) => s < 60 ? 'You reach winning positions but let some slip. When ahead: trade pieces and check every threat.' : 'You bring home most of your winning games — nice.' },
+  resource: { label: 'Defending tough spots', icon: '🛡️', dest: 'train', theme: 'fork',
+    why: (s) => s < 60 ? 'When you\'re worse, the game often ends fast. Practice making your opponent work for the win.' : 'You scrap well when worse — keep setting problems.' },
+  time: { label: 'Clock management', icon: '⏱️', dest: 'train', theme: 'fork',
+    why: (s) => s < 60 ? 'The clock is hurting you — you rush the key moments. Slow down on the 2–3 critical moves each game.' : 'You handle the clock well; keep banking time early.' },
+};
+
+export function focusAreas(dims) {
+  const core = dims.filter((d) => !d.bonus).sort((a, b) => a.score - b.score); // worst first
+  return core.map((d, i) => {
+    const a = AREA[d.key] || { label: d.name, icon: '•', dest: 'train', why: () => d.blurb };
+    const level = d.score < 45 ? 'weak' : d.score < 60 ? 'ok' : 'strong';
+    let why = a.why(d.score), badge, tone;
+    if (i < 2 && level !== 'strong') { badge = 'Focus here'; tone = 'focus'; }
+    else if (i === 0) { // always give a clear starting point, even for a strong all-rounder
+      badge = 'Start here'; tone = 'focus';
+      if (level === 'strong') why = `${a.label} is already a strength — and it's your lowest area, so sharpening it is the quickest path to your next level.`;
+    } else if (level === 'strong') { badge = '✓ strength'; tone = 'strength'; }
+    else { badge = 'keep sharp'; tone = 'keep'; }
+    return { key: d.key, label: a.label, icon: a.icon, score: d.score, dest: a.dest, theme: a.theme, level, why, badge, tone, primary: tone === 'focus' };
+  });
+}
+
 export function superAndWeak(dims) {
   const core = dims.filter((d) => !d.bonus);
   const sorted = [...core].sort((a, b) => b.score - a.score);
