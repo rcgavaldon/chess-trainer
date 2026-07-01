@@ -10,6 +10,7 @@ import { computeDimensions, dailyPlan, narratives, focusAreas, superAndWeak } fr
 import { playIntro } from '../intro.js';
 import { blunderQuestions } from '../coachquestions.js';
 import { recordSnapshot, progressDelta, getSnapshots, growthSvg } from '../progress.js';
+import { overview30, thisWeek, priorWeek, byCategory } from '../reports.js';
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
 import { computeBadges, newlyEarned } from '../achievements.js';
 import { LESSONS } from '../lessons.js';
@@ -151,7 +152,7 @@ async function drawReport() {
   const scope = S.timeClass || primaryTC(allMine);
   S.timeClass = scope;
   const scopedAll = scope === 'all' ? allMine : allMine.filter((g) => g.timeClass === scope);
-  const myGames = scopedAll.slice(0, 50); // the last 50 games in THIS category
+  const myGames = scopedAll.slice(0, 100); // the last ~100 games in THIS category
   const scopeName = TC_LABEL[scope] || scope;
 
   clear(area);
@@ -172,7 +173,7 @@ async function drawReport() {
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
     recordSnapshot(S.username, { rating: myGames[0]?.userRating || I.ratingAvg, acc: I.accAvg, dims });
-    area.append(nextStepsCard());
+    area.append(nextStepsCard(), reportCard(allMine));
     renderBadges(area, badgeData(myGames, eloPoints));
     renderCleanReport(area, {
       rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
@@ -200,20 +201,21 @@ async function drawReport() {
   } else if (myGames.length) {
     // INSTANT value (no analysis needed) so a first-timer sees something in <2s, then the
     // coaching insights build in the background instead of blocking on a 90s spinner.
-    area.append(nextStepsCard());
+    area.append(nextStepsCard(), reportCard(allMine));
     renderBadges(area, badgeData(myGames, eloPoints));
     area.append(instantSnapshot(record, last10rec, myGames[0]?.userRating, scope === 'all' ? null : scopeName));
     renderRatingHistory(area, eloPoints, scope === 'all' ? null : scopeName);
     const insightArea = h('div', { id: 'insight-area', class: 'section' });
     area.append(insightArea, gamesDetails(), breakdownDetails([], myGames));
-    if (!S._autoScanned) {
-      S._autoScanned = true;
-      await deepScanInto(insightArea, myGames, Math.min(12, myGames.length));
+    // Auto-analyze this category in the background (no click). Each game is cached to
+    // IndexedDB by analyzeGame, so future logins load it live without re-analyzing.
+    S._scanned = S._scanned || new Set();
+    if (!S._scanned.has(scope)) {
+      S._scanned.add(scope);
+      await deepScanInto(insightArea, myGames, Math.min(24, myGames.length));
       if (document.getElementById('insight-area')) drawReport(); // analyses ready → full report
     } else {
-      insightArea.append(h('div', { class: 'card' },
-        h('div', { class: 'hint' }, 'Want your strengths & weaknesses? Analyze a batch of these games (about a minute).'),
-        h('button', { class: 'btn small', style: { marginTop: '10px' }, onclick: async () => { await deepScanInto(document.getElementById('insight-area'), myGames, Math.min(12, myGames.length)); drawReport(); } }, `Analyze my ${scopeName} games`)));
+      insightArea.append(h('div', { class: 'card' }, h('div', { class: 'hint' }, 'Building your strengths & weaknesses in the background — it fills in as analysis completes and is saved for next time.')));
     }
   } else {
     area.append(h('div', { class: 'hint section' }, 'No games in this time control yet.'));
@@ -233,6 +235,22 @@ function nextStepsCard() {
       h('a', { class: 'btn ghost small', href: 'https://aimchess.com', target: '_blank', rel: 'noopener' }, '↗ Train tactics on Aimchess'),
       h('button', { class: 'btn ghost small', onclick: () => CTX.navigate('openings') }, '📖 Study your openings')),
     h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, '♟ Coach\'s rule: ~3 focused games a day, and if you lose 2 in a row, call it a day — tilt costs more rating than any opening.'));
+}
+
+// Auto-refreshing report: a first-time last-30-days overview + a rolling weekly summary,
+// straight from the imported games (regenerated every visit — client-side "auto-refresh").
+function reportCard(games) {
+  const o = overview30(games), w = thisWeek(games), pw = priorWeek(games);
+  const cats = byCategory(games).slice(0, 4).map(([tc, n]) => `${n} ${tc}`).join(', ');
+  const trend = (w.games && pw.games) ? w.winPct - pw.winPct : null;
+  const rd = (s) => (s.ratingDelta != null ? ` · ${s.primaryTC} ${s.ratingDelta >= 0 ? '+' : ''}${s.ratingDelta}` : '');
+  return h('div', { class: 'card section' },
+    h('h2', {}, '📬 Your report'),
+    h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, `Auto-updated from ${games.length} imported games${cats ? ` (${cats})` : ''}. Refreshes every time you open the app.`),
+    h('div', { style: { marginBottom: '10px' } }, h('b', {}, '📅 Last 30 days'),
+      h('div', { class: 'hint tiny' }, o.games ? `${o.games} games · ${o.w}-${o.l}-${o.d} (${o.winPct}%)${rd(o)}` : 'No games in the last 30 days.')),
+    h('div', {}, h('b', {}, '🗓️ This week'),
+      h('div', { class: 'hint tiny' }, w.games ? `${w.games} games · ${w.w}-${w.l}-${w.d} (${w.winPct}%)${rd(w)}${trend != null ? ` · ${trend >= 0 ? 'up' : 'down'} ${Math.abs(trend)}% vs last week` : ''}` : 'No games yet this week.')));
 }
 
 const DIM_NAME = { tactics: 'Tactics', openings: 'Openings', endgame: 'Endgame', advantage: 'Converting wins', resource: 'Defending', time: 'Clock management', consistency: 'Consistency' };
@@ -470,7 +488,7 @@ async function doImport() {
   const area = document.getElementById('report-area');
   if (area) clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your last 50 games…'));
   try {
-    const games = await cc.fetchRecentGames(username, { months: 12, timeClass: 'all', limit: 140 });
+    const games = await cc.fetchRecentGames(username, { months: 18, timeClass: 'all', limit: 320 });
     games.forEach((g) => (g.username = username));
     S.games = games;
     S.timeClass = null; // re-pick the primary time control for this player
