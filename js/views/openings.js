@@ -44,7 +44,7 @@ function controls() {
   return h('div', { class: 'controls' },
     h('div', { class: 'field username' }, h('label', {}, 'Username'), user),
     h('div', { class: 'field' }, h('label', { class: 'tiny' }, ' '), h('button', { class: 'btn', onclick: () => { OS.username = user.value.trim(); OS.loaded = false; draw(); } }, 'Load')),
-    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('drill', '🎯 Train lines'), tab('mistakes', 'Your mistakes'), tab('scout', 'Scout'), tab('explore', 'Explore all'))),
+    h('div', { class: 'field', style: { marginLeft: 'auto' } }, h('label', {}, 'View'), h('div', { class: 'chip-row' }, tab('yours', 'Your openings'), tab('mistakes', 'Your mistakes'), tab('explore', 'Explore all'))),
   );
 }
 
