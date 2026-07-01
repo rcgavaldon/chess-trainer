@@ -455,28 +455,23 @@ async function buildEndlessBatch() {
   return batch;
 }
 
-// Turn the player's OWN recent blunders (captured on their My Chess report) into puzzles: from
-// each losing position, find the move they should have played.
+// Turn the player's OWN recent blunders into puzzles. The solution is the exact best move the
+// analysis already found (no re-analysis) — the move you actually missed, not a fresh, possibly
+// different engine line — and we carry the move you played so the review can compare them.
 async function startBlunders() {
   stopTimer();
   const focus = store.get('train.focus', null);
-  const blunders = (focus && focus.blunders) || [];
+  const blunders = ((focus && focus.blunders) || []).filter((b) => b.fen && b.bestUci);
   if (!blunders.length) {
     clear(host).append(
-      h('div', { class: 'empty section' }, 'No blunders captured yet. Open the My Chess tab once so I can scan your recent games — your worst moments then show up here as puzzles to fix.'),
+      h('div', { class: 'empty section' }, 'No blunders captured yet. Open the My Chess tab once so I can scan your recent games — your worst moments then show up here to fix.'),
       h('div', { class: 'row', style: { justifyContent: 'center' } }, h('button', { class: 'btn', onclick: () => CTX.navigate('personal') }, 'Go to My Chess →')));
     return;
   }
-  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Building puzzles from your blunders…'));
-  let engine = null;
-  try { engine = await CTX.ensureEngine(); } catch { /* no engine */ }
-  if (!engine) { clear(host).append(h('div', { class: 'empty' }, 'The engine couldn\'t start — try again in a moment.'), h('button', { class: 'btn ghost', onclick: drawHome }, '← Back')); return; }
-  const puzzles = [];
-  for (const b of blunders.slice(0, 8)) {
-    try { const p = await buildBlunderPuzzle(b.fen, b.gameUrl || '', engine, { maxPlies: 4, depth: 14 }); if (p) puzzles.push(p); } catch { /* skip this one */ }
-  }
-  if (!puzzles.length) { clear(host).append(h('div', { class: 'empty' }, 'Couldn\'t build blunder puzzles right now — try again after your next game scan.'), h('button', { class: 'btn ghost', onclick: drawHome }, '← Back')); return; }
-  DR.list = puzzles; DR.i = 0; DR.theme = 'blunders'; DR.label = 'Your blunders'; DR.onDone = drawHome; DR.endless = false; DR.solved = 0; DR.attempts = 0; DR.refill = null;
+  const puzzles = blunders.slice(0, 8).map((b, i) => ({
+    id: 'blunder-' + i, fen: b.fen, solutionMoves: [b.bestUci], theme: 'blunder', playedSan: b.san || null, rating: null, source: 'personal',
+  }));
+  DR.list = puzzles; DR.i = 0; DR.theme = 'blunder'; DR.label = 'Your blunders'; DR.onDone = drawHome; DR.endless = false; DR.solved = 0; DR.attempts = 0; DR.refill = null;
   drillPuzzle();
 }
 
@@ -502,7 +497,9 @@ function drillPuzzle() {
   const theme = p.theme || (p.themes && p.themes[0]);
   let recorded = false, ratingDelta = null;
   clear(host);
-  const status = h('div', { class: 'puzzle-status' }, 'Your move — find the best continuation.');
+  const status = h('div', { class: 'puzzle-status' }, theme === 'blunder'
+    ? (p.playedSan ? `From your game — you played ${p.playedSan} here and it slipped. Find the stronger move.` : 'From your game — you slipped here. Find the move you missed.')
+    : 'Your move — find the best continuation.');
   const explain = h('div', { id: 'drill-explain' });
   const ratingBadge = h('span', { class: 'pill', id: 'pz-rating', style: { fontFamily: 'var(--mono)', fontWeight: 700 } }, `⚡ ${getPuzzleRating()}`);
   const nextBtn = h('button', { class: 'btn small', disabled: true, onclick: () => { DR.i++; if (DR.i >= DR.list.length) { if (DR.endless) return (DR.refill || endlessRefill)(); return (DR.onDone || drawHome)(); } drillPuzzle(); } }, 'Next →');
@@ -539,8 +536,10 @@ function drillPuzzle() {
       status.textContent = `✓ Solved!${ratingDelta ? `  ${ratingDelta.delta >= 0 ? '+' : ''}${ratingDelta.delta} → ${ratingDelta.after}` : ''}`;
       let keySan = '';
       try { const c = new Chess(p.fen); const m = c.move(toMoveObj(p.solutionMoves[0])); if (m) keySan = m.san; } catch { /* */ }
-      clear(explain).append(h('div', { class: 'explain-box', style: { fontSize: '13px', marginTop: '8px' } },
-        h('b', {}, `${themeLabel(theme)}. `), `${keySan ? `The key move was ${keySan}. ` : ''}${themeHint(theme)}`));
+      const body = theme === 'blunder' && p.playedSan
+        ? `${keySan ? `${keySan} was the move` : 'That was the move'} — much stronger than the ${p.playedSan} you played in the game.`
+        : `${keySan ? `The key move was ${keySan}. ` : ''}${themeHint(theme)}`;
+      clear(explain).append(h('div', { class: 'explain-box', style: { fontSize: '13px', marginTop: '8px' } }, h('b', {}, `${themeLabel(theme)}. `), body));
       nextBtn.disabled = false;
     },
     onWrong: (_p, first, mv) => {

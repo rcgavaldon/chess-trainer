@@ -13,6 +13,7 @@ export const THEME_LABEL = {
   mateIn1: '① Mate in 1', mateIn2: '② Mate in 2', mateIn3: '③ Mate in 3', backRankMate: '⬛ Back-rank mate', smotheredMate: '♞ Smothered mate',
   endgame: '🏁 Endgame', rookEndgame: '♜ Rook endgame', pawnEndgame: '♙ Pawn endgame', queenEndgame: '♛ Queen endgame',
   knightEndgame: '♞ Knight endgame', bishopEndgame: '♝ Bishop endgame', opening: '📖 Opening', middlegame: '🎯 Middlegame',
+  blunder: '🩹 From your game', crushing: '💪 Winning tactic', advantage: '📈 Win the advantage', mate: '♛ Checkmate',
 };
 export const themeLabel = (t) => THEME_LABEL[t] || (t ? '🧩 ' + t : '🧩 Tactic');
 
@@ -35,6 +36,7 @@ const HINT = {
   promotion: 'Push or support a pawn all the way to a queen.',
   advancedPawn: 'Your passed pawn is the star — push it toward promotion.',
   endgame: 'Few pieces left — activity and precise king moves decide it.',
+  blunder: 'You had a stronger move here in your own game — find what you missed.',
 };
 export const themeHint = (t) => HINT[t] || 'Look for the most forcing move — a check, a capture, or a real threat.';
 

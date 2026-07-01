@@ -474,7 +474,7 @@ async function deepScanInto(area, games, n) {
 
 function persistFocus(analyses, today) {
   const profile = buildWeaknessProfile(analyses, analyses[0]?.userColor);
-  store.set('train.focus', { themes: suggestedPuzzleThemes(profile), blunders: profile.blunders.slice(0, 8).map((b) => ({ fen: b.fen, theme: b.theme })), ts: Date.now() });
+  store.set('train.focus', { themes: suggestedPuzzleThemes(profile), blunders: profile.blunders.slice(0, 8).map((b) => ({ fen: b.fen, theme: b.theme, bestUci: b.bestUci, san: b.san })), ts: Date.now() });
   store.set('train.plan', { game: today.game, study: today.study, headline: today.headline, rest: today.rest, focus: today.focus?.name });
   store.set('train.questions', blunderQuestions(analyses, 12)); // "from your own games" drill
 }
@@ -903,7 +903,7 @@ function drawTrainingSection() {
   S._profile = profile;
   persistSnapshot();
   // persist focus areas so the Train tab can build a personalized daily set
-  store.set('train.focus', { themes: suggestedPuzzleThemes(profile), blunders: profile.blunders.slice(0, 8).map((b) => ({ fen: b.fen, theme: b.theme })), ts: Date.now() });
+  store.set('train.focus', { themes: suggestedPuzzleThemes(profile), blunders: profile.blunders.slice(0, 8).map((b) => ({ fen: b.fen, theme: b.theme, bestUci: b.bestUci, san: b.san })), ts: Date.now() });
 
   clear(area).append(
     h('h2', {}, 'Weaknesses & training'),
