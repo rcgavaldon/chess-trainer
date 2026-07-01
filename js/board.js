@@ -16,12 +16,17 @@ export function legalDests(chess) {
 
 // Thin constructor. `config` is a Chessground config; returns the ground API.
 export function createBoard(el, config = {}) {
-  return Chessground(el, {
+  const ground = Chessground(el, {
     animation: { enabled: true, duration: 180 },
     highlight: { lastMove: true, check: true },
     drawable: { enabled: true, visible: true },
     ...config,
   });
+  // Chessground measures its wrap synchronously at construction; mounted into a CSS grid the wrap
+  // can report 0 width mid-layout, which collapses the board to 0px wide. Re-measure once layout
+  // has settled — idempotent when the first measure was already correct.
+  requestAnimationFrame(() => { try { ground.redrawAll(); } catch { /* board may be gone */ } });
+  return ground;
 }
 
 // Re-sync an interactive board from authoritative chess.js state after a move.

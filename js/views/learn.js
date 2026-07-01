@@ -7,15 +7,25 @@ import { Chess } from 'chess.js';
 import { createBoard, showArrow } from '../board.js';
 import { LESSONS, bestOption } from '../lessons.js';
 import { mistakesLesson } from '../coachquestions.js';
+import { mountPuzzle } from '../puzzleplay.js';
+import { loadThemeShard } from '../puzzles.js';
+import { MATE_PATTERNS, IDENTIFY_OPTIONS, correctIdentify, basicName } from '../checkmates.js';
 
 const LS = { lesson: null, step: 0, score: 0, ground: null, answered: false };
-let CTX = null, host = null;
+const MATE = { patternObj: null, puzzles: null, idx: 0 };
+let LEARN_MODE = 'list', CTX = null, host = null;
 
-export function render(container, ctx) { CTX = ctx; host = container; LS.lesson = null; draw(); }
+export function render(container, ctx) { CTX = ctx; host = container; LS.lesson = null; MATE.patternObj = null; MATE.puzzles = null; LEARN_MODE = 'list'; draw(); }
 
 const progress = () => store.get('lessons.done', {});
 
-function draw() { clear(host); if (LS.lesson) renderStep(); else renderList(); }
+function draw() {
+  clear(host);
+  if (LS.lesson) return renderStep();
+  if (MATE.patternObj && MATE.puzzles) return playMate();
+  if (LEARN_MODE === 'mates') return renderMatePatterns();
+  renderList();
+}
 
 function renderList() {
   const done = progress();
@@ -24,6 +34,12 @@ function renderList() {
   host.append(
     h('h1', {}, '📚 Learn'),
     h('p', { class: 'hint' }, 'Short, interactive lessons. See a position, pick a move, and find out why it works — or why it doesn\'t. ' + (finished ? `${finished}/${total} done.` : '')));
+  // Bobby Fischer style: recognize + deliver checkmate patterns from real games.
+  host.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent-2)', boxShadow: '0 0 0 1px rgba(120,160,255,.18)', cursor: 'pointer' }, onclick: () => { LEARN_MODE = 'mates'; draw(); } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center' } },
+      h('div', {}, h('div', { style: { fontWeight: 800, fontSize: '17px' } }, '♛ Checkmate patterns'),
+        h('div', { class: 'hint tiny' }, 'Bobby Fischer style — see a position, deliver the mate, and learn what it\'s called.')),
+      h('button', { class: 'btn', onclick: () => { LEARN_MODE = 'mates'; draw(); } }, 'Train →'))));
   // Personalized: positions from the student's OWN games where they slipped.
   if (myQuestions.length) {
     host.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2)', cursor: 'pointer' }, onclick: () => openLesson(mistakesLesson(myQuestions)) },
@@ -99,6 +115,122 @@ function onPick(st, picked) {
   }
   const last = LS.step >= LS.lesson.steps.length - 1;
   panel.append(h('button', { class: 'btn', style: { marginTop: '4px' }, onclick: () => (last ? finishLesson() : (LS.step++, draw())) }, last ? 'Finish ✓' : 'Next →'));
+}
+
+// ---------- Checkmate patterns (Bobby Fischer style) ----------
+function renderMatePatterns() {
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: () => { LEARN_MODE = 'list'; draw(); } }, '← Learn'),
+      h('div', { class: 'hint tiny' }, 'Bobby Fischer style')),
+    h('h1', { style: { marginTop: '6px' } }, '♛ Checkmate patterns'),
+    h('p', { class: 'hint' }, 'See a position, deliver the mate on the board, then name the pattern. The more you see them, the faster they jump out.'),
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: '14px' } },
+      ...MATE_PATTERNS.map((m) => h('div', { class: 'card', style: { cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '5px' }, onclick: () => startMate(m) },
+        h('b', { style: { fontSize: '16px' } }, `${m.icon} ${m.name}`),
+        h('div', { class: 'hint tiny' }, m.blurb)))));
+}
+
+async function loadMatePuzzles(m) {
+  const per = Math.ceil(10 / m.shards.length) + 1;
+  const all = [];
+  for (const sh of m.shards) { const got = await loadThemeShard(sh, { count: per }); if (got) all.push(...got); }
+  for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+  return all.slice(0, 10);
+}
+
+async function startMate(m) {
+  MATE.patternObj = m; MATE.puzzles = null; MATE.idx = 0;
+  clear(host).append(h('div', { class: 'empty', style: { paddingTop: '40px' } }, h('div', { class: 'row', style: { justifyContent: 'center' } }, h('span', { class: 'spinner' }), ' Loading mates…')));
+  const pz = await loadMatePuzzles(m);
+  if (!pz || !pz.length) {
+    clear(host).append(h('div', { class: 'card section' }, h('div', {}, 'Couldn\'t load these puzzles right now.'),
+      h('button', { class: 'btn ghost small', style: { marginTop: '8px' }, onclick: () => { MATE.patternObj = null; LEARN_MODE = 'mates'; draw(); } }, '← Back')));
+    return;
+  }
+  MATE.puzzles = pz; MATE.idx = 0; playMate();
+}
+
+function playMate() {
+  const p = MATE.puzzles[MATE.idx], m = MATE.patternObj;
+  clear(host);
+  const chess = new Chess(p.fen);
+  const toMove = chess.turn() === 'w' ? 'White' : 'Black';
+  const plies = p.solutionMoves.length;
+  const ask = plies <= 1 ? 'Deliver checkmate in one.' : `Force checkmate (mate in ${Math.ceil(plies / 2)}).`;
+  const boardEl = h('div', { id: 'mate-board' });
+  const panel = h('div', { class: 'trainer-side', id: 'mate-panel' });
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: () => { MATE.patternObj = null; MATE.puzzles = null; LEARN_MODE = 'mates'; draw(); } }, '← Patterns'),
+      h('div', { class: 'hint tiny' }, `${m.name} · ${MATE.idx + 1} of ${MATE.puzzles.length}`)),
+    h('h1', { style: { marginTop: '6px', fontSize: '21px' } }, `${m.icon} ${m.name}`),
+    h('div', { class: 'trainer-grid section' },
+      h('div', { class: 'trainer-coach' },
+        h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--accent-2)', marginBottom: '6px' } }, `♟ ${toMove} to move`),
+        h('div', { class: 'explain-box', style: { fontSize: '14px' } }, ask)),
+      h('div', { class: 'board-wrap trainer-board' }, boardEl),
+      panel));
+  const ctrl = mountPuzzle(boardEl, p, {
+    allowRetry: true,
+    onWrong: (pz, first) => {
+      if (document.getElementById('mate-wrong')) return;
+      panel.append(h('div', { id: 'mate-wrong', class: 'hint', style: { color: 'var(--warn)', marginTop: '10px' } }, first ? 'Not mate — that lets the king out. Look again.' : 'Still not mate. Try the hint.'));
+    },
+    onSolved: () => onMateSolved(panel, p),
+  });
+  clear(panel).append(
+    h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '8px' } }, 'Play the mating move on the board.'),
+    h('button', { class: 'btn ghost small', onclick: () => ctrl.hint() }, '💡 Hint'));
+}
+
+function onMateSolved(panel, p) {
+  clear(panel);
+  if (MATE.patternObj.key === 'mix') {
+    panel.append(
+      h('div', { style: { fontWeight: 800, color: 'var(--good)', fontSize: '16px', marginBottom: '6px' } }, '✓ Checkmate!'),
+      h('div', { class: 'hint', style: { marginBottom: '10px' } }, 'What kind of mate did you just deliver?'));
+    for (const opt of IDENTIFY_OPTIONS) {
+      panel.append(h('button', { class: 'btn ghost', style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '8px' }, onclick: () => revealIdentify(panel, p, opt.key) }, opt.label));
+    }
+  } else {
+    revealMate(panel, MATE.patternObj.name, MATE.patternObj.teach, true);
+  }
+}
+
+function revealIdentify(panel, p, guess) {
+  const correct = correctIdentify(p);
+  const right = guess === correct;
+  const named = MATE_PATTERNS.find((m) => m.key === correct);
+  const name = correct === 'basic' ? basicName(p) : named.name;
+  const teach = correct === 'basic' ? 'A clean forced mate — the bread and butter of finishing a game.' : named.teach;
+  clear(panel).append(
+    h('div', { style: { fontWeight: 800, color: right ? 'var(--good)' : 'var(--warn)', fontSize: '16px', marginBottom: '8px' } }, right ? `✓ Right — ${name}` : `Actually — ${name}`),
+    h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '12px' } }, teach),
+    nextMateBtn());
+}
+
+function revealMate(panel, name, teach) {
+  clear(panel).append(
+    h('div', { style: { fontWeight: 800, color: 'var(--good)', fontSize: '16px', marginBottom: '8px' } }, `✓ ${name}!`),
+    h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '12px' } }, teach),
+    nextMateBtn());
+}
+
+function nextMateBtn() {
+  const last = MATE.idx >= MATE.puzzles.length - 1;
+  return h('button', { class: 'btn', onclick: () => { if (last) finishMates(); else { MATE.idx++; playMate(); } } }, last ? 'Done ✓' : 'Next mate →');
+}
+
+function finishMates() {
+  const m = MATE.patternObj, n = MATE.puzzles.length;
+  clear(host).append(h('div', { class: 'empty', style: { paddingTop: '40px' } },
+    h('div', { style: { fontSize: '44px' } }, '♚'),
+    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `${n} checkmates delivered!`),
+    h('div', { class: 'hint', style: { marginTop: '6px' } }, 'Pattern recognition is pure repetition — the more mates you see, the faster they jump out in your own games.'),
+    h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px', gap: '10px' } },
+      h('button', { class: 'btn', onclick: () => startMate(m) }, `↻ More ${m.name.toLowerCase()}`),
+      h('button', { class: 'btn ghost', onclick: () => { MATE.patternObj = null; MATE.puzzles = null; LEARN_MODE = 'mates'; draw(); } }, 'All patterns'))));
 }
 
 function finishLesson() {
