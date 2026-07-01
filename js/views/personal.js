@@ -9,6 +9,7 @@ import { computeInsights, comparePeers, improvementPlan, byTimeControl } from '.
 import { computeDimensions, dailyPlan, narratives, focusAreas, superAndWeak } from '../report.js';
 import { playIntro } from '../intro.js';
 import { blunderQuestions } from '../coachquestions.js';
+import { recordSnapshot, progressDelta, getSnapshots, growthSvg } from '../progress.js';
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
 import { computeBadges, newlyEarned } from '../achievements.js';
 import { LESSONS } from '../lessons.js';
@@ -170,6 +171,7 @@ async function drawReport() {
     const today = dailyPlan(dims, I, I.openings);
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
+    recordSnapshot(S.username, { rating: myGames[0]?.userRating || I.ratingAvg, acc: I.accAvg, dims });
     area.append(nextStepsCard());
     renderBadges(area, badgeData(myGames, eloPoints));
     renderCleanReport(area, {
@@ -179,6 +181,7 @@ async function drawReport() {
       onTrain: () => window.open('https://aimchess.com', '_blank'),
       onGo: (f) => { if (f.dest === 'openings') CTX.navigate('openings'); else window.open('https://aimchess.com', '_blank'); },
     });
+    area.append(progressCard(S.username));
     area.append(gamesDetails(), breakdownDetails(analyses, myGames));
     // First-run reveal: the 60-second "your chess, decoded" intro, once.
     if (!store.get('profile.introSeen')) {
@@ -230,6 +233,29 @@ function nextStepsCard() {
       h('a', { class: 'btn ghost small', href: 'https://aimchess.com', target: '_blank', rel: 'noopener' }, '↗ Train tactics on Aimchess'),
       h('button', { class: 'btn ghost small', onclick: () => CTX.navigate('openings') }, '📖 Study your openings')),
     h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, '♟ Coach\'s rule: ~3 focused games a day, and if you lose 2 in a row, call it a day — tilt costs more rating than any opening.'));
+}
+
+const DIM_NAME = { tactics: 'Tactics', openings: 'Openings', endgame: 'Endgame', advantage: 'Converting wins', resource: 'Defending', time: 'Clock management', consistency: 'Consistency' };
+const dimName = (k) => DIM_NAME[k] || k;
+
+// Growth over time — the coach's real question: "is this player getting better?".
+function progressCard(username) {
+  const snaps = getSnapshots(username);
+  if (snaps.length < 2) {
+    return h('div', { class: 'card section' }, h('h2', {}, '📈 Progress over time'),
+      h('div', { class: 'hint tiny' }, 'First snapshot saved today. This chart fills in as the player comes back and gets analyzed again — you\'ll see rating, accuracy, and each skill trend over the weeks.'));
+  }
+  const d = progressDelta(username, 30);
+  const summary = [d.ratingDelta != null ? `rating ${d.ratingDelta >= 0 ? '+' : ''}${d.ratingDelta}` : null, d.accDelta != null ? `accuracy ${d.accDelta >= 0 ? '+' : ''}${d.accDelta}%` : null].filter(Boolean).join(' · ');
+  const gain = d.mostImproved && d.mostImproved.delta > 0 ? ` Biggest gain: ${dimName(d.mostImproved.key)} +${d.mostImproved.delta}.` : '';
+  const chart = growthSvg(username, 'acc');
+  const deltaRows = Object.entries(d.dimDeltas || {}).sort((a, b) => b[1] - a[1]).filter(([, v]) => v !== 0);
+  return h('div', { class: 'card section' }, h('h2', {}, '📈 Progress over time'),
+    h('div', { class: 'hint tiny', style: { marginBottom: '8px' } }, `Across the last ${d.days} day${d.days > 1 ? 's' : ''} of tracked sessions${summary ? ': ' + summary : ''}.${gain}`),
+    chart ? h('div', { html: chart }) : null,
+    chart ? h('div', { class: 'hint tiny', style: { margin: '4px 0 8px' } }, 'Accuracy across analyzed sessions.') : null,
+    deltaRows.length ? h('div', {}, ...deltaRows.map(([k, v]) => h('div', { class: 'row', style: { justifyContent: 'space-between', fontSize: '13px', padding: '3px 0' } },
+      h('span', {}, dimName(k)), h('b', { style: { color: v >= 0 ? 'var(--good)' : 'var(--bad)', fontFamily: 'var(--mono)' } }, (v >= 0 ? '+' : '') + v)))) : null);
 }
 
 function badgeData(myGames, eloPoints) {
