@@ -3,10 +3,12 @@
 import { h, clear } from '../dom.js';
 import * as store from '../storage.js';
 import { Chess } from 'chess.js';
-import { loadFullShard, loadThemeShard, loadMixedBatch, recordAttempt, buildBlunderPuzzle } from '../puzzles.js';
+import { loadFullShard, loadThemeShard, loadMixedBatch, recordAttempt, buildBlunderPuzzle, toMoveObj } from '../puzzles.js';
 import { mountPuzzle } from '../puzzleplay.js';
 import { mountChat } from '../chatcoach.js';
 import { MATE_PATTERNS, IDENTIFY_OPTIONS, correctIdentify, basicName } from '../checkmates.js';
+import { getPuzzleRating, updatePuzzleRating } from '../puzzlerating.js';
+import { themeLabel, themeHint, whyWrong } from '../puzzlemeta.js';
 
 const TR = { _timer: null };
 let CTX = null, host = null;
@@ -55,9 +57,14 @@ const DRILLS = [
   { theme: 'advancedPawn', label: 'Passed pawns', desc: 'Push them home.' },
 ];
 
+// Let the report's "Train this" / "Train all in 1" buttons launch a themed puzzle session here.
+let pendingThemes = null;
+export function requestThemes(themes) { pendingThemes = (themes || []).filter(Boolean); }
+
 export function render(container, ctx) {
   CTX = ctx; host = container;
   stopTimer();
+  if (pendingThemes && pendingThemes.length) { const t = pendingThemes; pendingThemes = null; startThemePuzzles(t); return; }
   drawHome();
 }
 
@@ -481,29 +488,54 @@ async function endlessRefill() {
 
 function drillPuzzle() {
   const p = DR.list[DR.i];
-  let recorded = false;
+  const theme = p.theme || (p.themes && p.themes[0]);
+  let recorded = false, ratingDelta = null;
   clear(host);
   const status = h('div', { class: 'puzzle-status' }, 'Your move — find the best continuation.');
+  const explain = h('div', { id: 'drill-explain' });
+  const ratingBadge = h('span', { class: 'pill', id: 'pz-rating', style: { fontFamily: 'var(--mono)', fontWeight: 700 } }, `⚡ ${getPuzzleRating()}`);
   const nextBtn = h('button', { class: 'btn small', disabled: true, onclick: () => { DR.i++; if (DR.i >= DR.list.length) { if (DR.endless) return (DR.refill || endlessRefill)(); return (DR.onDone || drawHome)(); } drillPuzzle(); } }, 'Next →');
-  const record = (solved) => { if (recorded) return; recorded = true; DR.attempts++; if (solved) DR.solved++; const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} }); recordAttempt(srs, p, { solved }); store.set('puzzles.srs', srs); };
+  const record = (solved) => {
+    if (recorded) return; recorded = true;
+    DR.attempts++; if (solved) DR.solved++;
+    const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} }); recordAttempt(srs, p, { solved }); store.set('puzzles.srs', srs);
+    ratingDelta = updatePuzzleRating(p.rating || 1500, solved);
+    const b = document.getElementById('pz-rating'); if (b) b.textContent = `⚡ ${getPuzzleRating()}`;
+  };
   const progressLabel = DR.endless ? `${DR.label} · ${DR.solved}/${DR.attempts} solved` : `${DR.label} · ${DR.i + 1} of ${DR.list.length}`;
   host.append(
-    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' } },
       h('button', { class: 'btn ghost small', onclick: drawHome }, '← Back'),
-      h('div', { class: 'hint' }, `${progressLabel}${p.rating ? ' · rating ' + p.rating : ''}`)),
+      h('div', { class: 'row', style: { gap: '10px', alignItems: 'center' } },
+        h('span', { class: 'hint tiny' }, `${progressLabel}${p.rating ? ' · lvl ' + p.rating : ''}`), ratingBadge)),
+    h('div', { class: 'hint tiny', style: { margin: '2px 0 6px', fontWeight: 700, color: 'var(--accent-2)' } }, `Type: ${themeLabel(theme)}`),
     h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
       h('div', { class: 'board-wrap' }, h('div', { id: 'drill-board' })),
-      h('div', { class: 'sidebar' }, status,
+      h('div', { class: 'sidebar' }, status, explain,
         h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => api.hint() }, 'Hint'), nextBtn),
         h('div', { class: 'section' },
           h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '6px', color: 'var(--accent-2)' } }, '💬 Ask the coach'),
           h('div', { id: 'drill-chat' })))));
   mountChat(document.getElementById('drill-chat'), {
-    getContext: () => `Tactics puzzle, player to move. FEN: ${p.fen}. The correct solution moves (UCI) are: ${p.solutionMoves.join(' ')}. Theme: ${p.theme}. Help the player understand WHY this works; don't just give the moves unless they ask.`,
+    getContext: () => `Tactics puzzle, player to move. FEN: ${p.fen}. The correct solution moves (UCI) are: ${p.solutionMoves.join(' ')}. Theme: ${theme}. Help the player understand WHY this works; don't just give the moves unless they ask.`,
     starter: 'Ask about this puzzle…',
   });
   const api = mountPuzzle(document.getElementById('drill-board'), p, {
-    onSolved: () => { status.textContent = '✓ Solved!'; status.className = 'puzzle-status ok'; nextBtn.disabled = false; record(true); },
-    onWrong: (_p, first) => { status.textContent = '✗ Not the move — try again.'; status.className = 'puzzle-status no'; if (first) record(false); },
+    onSolved: () => {
+      record(true);
+      status.className = 'puzzle-status ok';
+      status.textContent = `✓ Solved!${ratingDelta ? `  ${ratingDelta.delta >= 0 ? '+' : ''}${ratingDelta.delta} → ${ratingDelta.after}` : ''}`;
+      let keySan = '';
+      try { const c = new Chess(p.fen); const m = c.move(toMoveObj(p.solutionMoves[0])); if (m) keySan = m.san; } catch { /* */ }
+      clear(explain).append(h('div', { class: 'explain-box', style: { fontSize: '13px', marginTop: '8px' } },
+        h('b', {}, `${themeLabel(theme)}. `), `${keySan ? `The key move was ${keySan}. ` : ''}${themeHint(theme)}`));
+      nextBtn.disabled = false;
+    },
+    onWrong: (_p, first, mv) => {
+      if (first) record(false);
+      const why = (mv && whyWrong(mv.fen, mv.uci, theme)) || `That's not it — ${themeHint(theme).charAt(0).toLowerCase() + themeHint(theme).slice(1)}`;
+      status.className = 'puzzle-status no';
+      status.textContent = `✗ ${why} Try again.`;
+    },
   });
 }

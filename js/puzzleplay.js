@@ -36,7 +36,7 @@ export function mountPuzzle(el, puzzle, opts = {}) {
       }, opts.autoReplyMs ?? 240);
     } else {
       const first = !wrongOnce; wrongOnce = true;
-      opts.onWrong && opts.onWrong(puzzle, first);
+      opts.onWrong && opts.onWrong(puzzle, first, { orig, dest, uci, fen: chess.fen() });
       ground.set({ fen: chess.fen(), movable: { color: side, dests: opts.allowRetry === false ? new Map() : legalDests(chess) } });
     }
   }

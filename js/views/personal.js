@@ -26,6 +26,29 @@ import {
   recordAttempt, difficultyForTheme, loadThemeShard,
 } from '../puzzles.js';
 import { cloudEnabled, upsertSnapshot, fetchStudents } from '../cloud.js';
+import { requestThemes } from './train.js';
+
+// Map a weakness (focus-area key) to the puzzle themes that train it, so "Train this" opens
+// puzzles of exactly that kind. Openings train via the Openings tab, not puzzles.
+const FOCUS_THEMES = {
+  tactics: ['fork', 'pin', 'skewer', 'hangingPiece', 'discoveredAttack', 'deflection'],
+  endgame: ['endgame', 'rookEndgame', 'pawnEndgame', 'knightEndgame', 'bishopEndgame'],
+  advantage: ['hangingPiece', 'fork', 'skewer', 'promotion'],
+  resource: ['defensiveMove', 'hangingPiece', 'fork'],
+  time: ['mateIn1', 'fork', 'hangingPiece', 'backRankMate'],
+};
+const focusThemesFor = (key) => FOCUS_THEMES[key] || ['fork', 'pin', 'hangingPiece'];
+function trainFocus(f) {
+  if (f.dest === 'openings') { CTX.navigate('openings'); return; }
+  requestThemes(focusThemesFor(f.key));
+  CTX.navigate('train');
+}
+function trainAllWeak(focus) {
+  const weak = focus.filter((f) => f.dest !== 'openings' && (f.primary || f.level !== 'strong')).slice(0, 4);
+  const themes = [...new Set(weak.flatMap((f) => focusThemesFor(f.key)))];
+  requestThemes(themes.length ? themes : ['fork', 'pin', 'hangingPiece', 'endgame']);
+  CTX.navigate('train');
+}
 
 const S = { username: '', timeClass: null, games: [], analyses: {} }; // analyses keyed by game.url; timeClass null = auto-pick primary
 let CTX = null;
@@ -188,8 +211,8 @@ async function drawReport() {
         rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
         record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
         eloPoints, focus: focusAreas(dims),
-        onTrain: () => window.open('https://aimchess.com', '_blank'),
-        onGo: (f) => { if (f.dest === 'openings') CTX.navigate('openings'); else window.open('https://aimchess.com', '_blank'); },
+        onTrain: () => trainAllWeak(focusAreas(dims)),
+        onGo: (f) => trainFocus(f),
       });
       area.append(progressCard(S.username));
       area.append(gamesDetails(), breakdownDetails(analyses, myGames));
@@ -353,7 +376,9 @@ function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints
   area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2)' } },
     h('h2', {}, '🎯 Your 3 things to work on'),
     h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '8px' } }, 'Start at the top. A little each day beats a lot once in a while.'),
-    ...focus.slice(0, 3).map((f, i) => studentActionRow(f, i, I))));
+    ...focus.slice(0, 3).map((f, i) => studentActionRow(f, i, I)),
+    h('div', { class: 'row', style: { marginTop: '12px', justifyContent: 'center' } },
+      h('button', { class: 'btn', onclick: () => trainAllWeak(focus) }, '🎯 Train all 3 in one session →'))));
   area.append(h('div', { class: 'card section' },
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' } },
       h('div', {}, h('b', {}, '🎬 Review your games'), h('div', { class: 'hint tiny' }, 'Play back your recent games and see what happened.')),
@@ -377,12 +402,11 @@ function studentActionRow(f, i, I) {
     const weak = I.openings.filter((o) => o.games >= 2 && o.acc != null && o.name !== 'Unknown').sort((a, b) => a.scorePct - b.scorePct)[0];
     if (weak) why = `You score low in the ${weak.name} (${weak.scorePct}%). Learn its plans and you'll win more of those.`;
   }
-  const url = isOpening ? 'https://listudy.org/en/studies' : 'https://aimchess.com';
-  const label = isOpening ? 'Study on Listudy ↗' : 'Drill on Aimchess ↗';
+  const label = isOpening ? 'Study openings →' : 'Train this →';
   return h('div', { class: 'focus-row' },
     h('div', { class: 'focus-icon' }, f.icon),
     h('div', { style: { minWidth: 0 } }, h('b', {}, `${i + 1}. ${f.label}`), h('div', { class: 'hint', style: { fontSize: '13px' } }, why)),
-    h('a', { class: 'btn small' + (i === 0 ? '' : ' ghost'), href: url, target: '_blank', rel: 'noopener', style: { alignSelf: 'center', whiteSpace: 'nowrap' } }, label));
+    h('button', { class: 'btn small' + (i === 0 ? '' : ' ghost'), style: { alignSelf: 'center', whiteSpace: 'nowrap' }, onclick: () => trainFocus(f) }, label));
 }
 
 function badgeData(myGames, eloPoints) {
