@@ -81,7 +81,7 @@ function drawHome() {
     h('p', { class: 'hint' }, 'Three ways to train: pick the patterns you want, learn to finish games with the classic mates, or race the clock as the difficulty ramps to your level.'),
     h('div', { class: 'section', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: '14px' } },
       bigCard3('🧩', 'Puzzles', 'Choose exactly what you drill — all patterns, a few, or just one. Tuned to your rating.', 'Choose themes →', renderThemePicker),
-      bigCard3('♛', 'Name the Mate', 'Deliver the checkmate from a real game, then name the pattern. Bobby-Fischer style, explained.', 'Train mates →', renderMateHome),
+      bigCard3('♛', 'Advanced Mates', 'Learn the classic named checkmates — Anastasia\'s, Boden\'s, Arabian… — see each one, practice it, then identify them.', 'Open Mates →', () => CTX.navigate('mates')),
       bigCard3('🌪', 'Puzzle Storm', `Race the clock as puzzles ramp from easy up past your level. Best: ${store.get('train.stormBest', 0)}`, 'Start storm →', startStorm)),
     h('h2', { class: 'section' }, 'More practice'),
     h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } },
