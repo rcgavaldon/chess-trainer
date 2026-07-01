@@ -6,7 +6,13 @@
 // up (see SUPABASE_SETUP.md). We only ever store first name + Chess.com username + ratings.
 import * as store from './storage.js';
 
-const cfg = () => ({ url: store.get('cloud.url', '').replace(/\/$/, ''), key: store.get('cloud.key', '') });
+// Baked-in shared backend so every student/coach auto-connects to the same leaderboard.
+// The publishable key is public by design (Supabase: "safe to share publicly") and access is
+// gated by the row-level policies. A device can still override via the Connect panel.
+const DEFAULT_URL = 'https://ukorgxlabzoslxxxhtvm.supabase.co';
+const DEFAULT_KEY = 'sb_publishable_BIwXxIlAGm6cjNvMUriREQ_JTSmUhmv';
+
+const cfg = () => ({ url: (store.get('cloud.url', '') || DEFAULT_URL).replace(/\/$/, ''), key: store.get('cloud.key', '') || DEFAULT_KEY });
 export const cloudEnabled = () => { const c = cfg(); return !!(c.url && c.key); };
 export function setCloudConfig(url, key) { store.set('cloud.url', (url || '').trim()); store.set('cloud.key', (key || '').trim()); }
 

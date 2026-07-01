@@ -44,10 +44,8 @@ function cloudPanel(r) {
   }
   return h('div', { class: 'card section', style: { borderColor: 'var(--good)' } },
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
-      h('div', {}, h('b', {}, '☁ Connected'), h('div', { class: 'hint tiny' }, 'Roster + leaderboard are shared live across devices.')),
-      h('div', { class: 'row', style: { gap: '6px' } },
-        h('button', { class: 'btn small ghost', onclick: async () => { await syncToCloud(r); draw(); } }, '↑ Sync roster'),
-        h('button', { class: 'btn small ghost', onclick: () => { if (confirm('Disconnect this device from the shared leaderboard?')) { setCloudConfig('', ''); draw(); } } }, 'Disconnect'))));
+      h('div', {}, h('b', {}, '☁ Shared leaderboard is live'), h('div', { class: 'hint tiny' }, 'Roster + ratings sync across every device automatically.')),
+      h('button', { class: 'btn small ghost', onclick: async (e) => { const b = e.currentTarget; b.textContent = 'Syncing…'; await syncToCloud(r); draw(); } }, '↑ Sync roster now')));
 }
 
 async function syncToCloud(r) {
