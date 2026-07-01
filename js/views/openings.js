@@ -309,12 +309,19 @@ function renderGuided() {
 }
 
 const gdFenAfter = (fen, san) => { try { const c = new Chess(fen); c.move(san); return c.fen(); } catch { return fen; } };
-function gdCommentary(fenBefore, m, sanSeq) {
-  const note = sanSeq && noteFor(sanSeq); // hand-written commentary for the popular lines
+// Why a book move is the move — hand-written note first, then a CONCRETE tactical reason if
+// there is one, and otherwise the opening PURPOSE (develop/center/castle) rather than the
+// generic "the engine prefers…" filler that reads like noise in the opening.
+function openingWhy(fenBefore, m, sanSeq, ply) {
+  const note = sanSeq && noteFor(sanSeq);
   if (note) return note;
-  try { return explainMove({ fenBefore, fenAfter: gdFenAfter(fenBefore, m.san), move: m, label: 'Best', ply: GD.ply + 1, history: [], bestMoveUci: null }).text; }
-  catch { return IDEAS[classifyOpeningMove(m)]; }
+  try {
+    const ex = explainMove({ fenBefore, fenAfter: gdFenAfter(fenBefore, m.san), move: m, label: 'Best', ply: ply || 8, history: [], bestMoveUci: null });
+    if (ex && ex.type !== 'fallback') return ex.text; // a real tactic (fork, capture, threat…)
+  } catch { /* fall through to the opening idea */ }
+  return IDEAS[classifyOpeningMove(m)];
 }
+const gdCommentary = (fenBefore, m, sanSeq) => openingWhy(fenBefore, m, sanSeq, GD.ply + 1);
 function gdSetCoach(title, body, color) { const box = document.getElementById('gd-coach'); if (!box) return; clear(box).append(h('div', { style: { fontWeight: 700, color: color || 'var(--text)', marginBottom: '4px' } }, title), h('div', { class: 'hint', style: { fontSize: '13px' } }, body)); }
 function gdSetBoard(movable) {
   const last = GD.chess.history({ verbose: true }).slice(-1)[0];
@@ -356,10 +363,11 @@ function onGuidedMove(orig, dest) {
     gdSetCoach(`✓ ${mv.san}`, gdCommentary(fenBefore, mv, GD.chess.history().join(' ')), 'var(--good)');
     GD.busy = true; setTimeout(() => { GD.busy = false; guidedAdvance(); }, 950);
   } else {
+    const played = mv.san;
     GD.chess.move(expected.san); GD.ply++;
     gdSetBoard(false); showArrow(GD.ground, expected.from + expected.to, 'red');
-    gdSetCoach(`The book move is ${expected.san}`, gdCommentary(fenBefore, expected, GD.chess.history().join(' ')), 'var(--warn)');
-    GD.busy = true; setTimeout(() => { GD.busy = false; guidedAdvance(); }, 1800);
+    gdSetCoach(`${played} is an option — but ${expected.san} is the main line here`, `${gdCommentary(fenBefore, expected, GD.chess.history().join(' '))} That's what makes it the book move.`, 'var(--warn)');
+    GD.busy = true; setTimeout(() => { GD.busy = false; guidedAdvance(); }, 1900);
   }
 }
 
@@ -793,7 +801,7 @@ function onUserMove(orig, dest) {
 
   if (mv.san === expected) {
     DR.chess.move({ from: orig, to: dest, promotion: 'q' }); DR.done++; DR.ply++; DR.tries = 0;
-    const why = explainMove({ fenBefore, fenAfter: DR.chess.fen(), move: mv, label: 'Best', ply: DR.ply, history: DR.chess.history({ verbose: true }), bestMoveUci: null }).text;
+    const why = openingWhy(fenBefore, mv, DR.chess.history().join(' '), DR.ply);
     setCoach(`✓ ${mv.san} — correct!`, why, 'var(--good)');
     updateProg(); advance();
     return;
@@ -803,14 +811,14 @@ function onUserMove(orig, dest) {
   DR.tries = (DR.tries || 0) + 1;
   if (DR.tries === 1) DR.mistakes++; // one slip per move, no matter how many tries
   if (DR.tries < 2) {
-    setCoach(`Not ${mv.san} — try again`, `That's legal, but not the main line of the ${DR.line.name.split(':')[0]}. Think about the most natural developing move and have another go.`, 'var(--warn)');
+    setCoach(`${mv.san} is an option — but not the theory here`, `It's a legal move, just not how the ${DR.line.name.split(':')[0]} goes. Think about developing a piece or fighting for the center, and have another go.`, 'var(--warn)');
     boardState(true); updateProg(); // re-sync (undoes the wrong move on the board); still your turn
     return;
   }
   DR.busy = true;
   const exp = new Chess(fenBefore); const em = exp.move(expected);
-  const why = explainMove({ fenBefore, fenAfter: exp.fen(), move: em, label: 'Best', ply: DR.ply + 1, history: exp.history({ verbose: true }), bestMoveUci: null }).text;
-  setCoach(`The move here is ${expected}`, why, 'var(--accent-2)');
+  const why = openingWhy(fenBefore, em, exp.history().join(' '), DR.ply + 1);
+  setCoach(`${expected} is the main line here`, `${why} That's what makes it theory.`, 'var(--accent-2)');
   DR.chess.move(expected); DR.ply++; DR.tries = 0;
   boardState(false); showArrow(DR.ground, em.from + em.to, 'green');
   setTimeout(() => { clearArrows(DR.ground); updateProg(); DR.busy = false; advance(); }, 1500);

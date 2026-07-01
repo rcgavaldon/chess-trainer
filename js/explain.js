@@ -313,7 +313,7 @@ export function explainMove(ctx) {
       if (eng.kind === 'capture') add(90, 'missed', `You missed ${eng.san}, winning the ${NAME[eng.captured]}.`);
       else if (eng.kind === 'mate') add(94, 'missed', `Stronger was ${eng.san}, which leads to mate.`);
       else if (eng.kind === 'check') add(85, 'missed', `Stronger was ${eng.san}, a check that flips the position.`);
-      else add(70, 'missed', `The engine prefers ${eng.san} here.`);
+      else add(70, 'missed', `${eng.san} was the stronger move here.`);
     }
     const ks = detectKingShieldPawnMove(ctx.fenBefore, ctx.move);
     if (ks) add(60, 'kingsafety', `Pushing this pawn weakens the shelter in front of your ${ks.side}-castled king.`);
