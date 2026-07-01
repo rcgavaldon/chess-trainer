@@ -64,12 +64,37 @@ async function loadYours() {
   catch (e) { clear(body).append(h('div', { class: 'empty' }, 'Could not load. ', h('span', { class: 'tiny' }, e.message))); }
 }
 
+function recommendOpening(color, rating) {
+  const r = rating || 1200;
+  if (color === 'white') {
+    if (r < 1400) return { name: 'the London System', why: 'a rock-solid setup you can play against almost anything — very hard to go wrong while you build up the rest of your game' };
+    if (r < 1800) return { name: 'the Italian Game', why: 'classic, principled attacking chess that teaches ideas you\'ll use for the rest of your career' };
+    return { name: 'the Queen\'s Gambit', why: 'fights for the center with clear plans — a mainstay at every serious level' };
+  }
+  if (r < 1400) return { name: 'the Caro-Kann', why: 'super solid against 1.e4, keeps your pieces free and dodges early tricks' };
+  if (r < 1800) return { name: 'the Sicilian Defense', why: 'plays for the win as Black and unbalances the game in your favor' };
+  return { name: 'the Najdorf Sicilian', why: 'the most respected fighting defense — flexible and rich in ideas' };
+}
+
 async function drawYours() {
   const body = document.getElementById('op-body');
   if (!OS.username) { clear(body).append(h('div', { class: 'empty' }, 'Enter your Chess.com username above to see your openings.')); return; }
   if (!OS.loaded) return loadYours();
   clear(body);
   if (!OS.correlation.length) { body.append(h('div', { class: 'empty' }, 'No recognized openings in your recent games yet.')); return; }
+
+  // Chess.com's own per-game accuracy (where the game was reviewed), keyed by url.
+  const accMap = new Map();
+  for (const g of OS.games) if (g.accuracies && g.accuracies[g.userColor] != null) accMap.set(g.url, g.accuracies[g.userColor]);
+  const colorStats = (o, color) => {
+    const refs = (o.refs || []).filter((r) => r.color === color);
+    const rec = { w: 0, l: 0, d: 0 };
+    for (const r of refs) { if (r.result === 'win') rec.w++; else if (r.result === 'loss') rec.l++; else rec.d++; }
+    const n = rec.w + rec.l + rec.d;
+    const accs = refs.map((r) => accMap.get(r.url)).filter((x) => x != null);
+    return { games: n, ...rec, winPct: n ? Math.round(((rec.w + rec.d * 0.5) / n) * 100) : 0, acc: accs.length ? Math.round(accs.reduce((a, b) => a + b, 0) / accs.length) : null };
+  };
+  const rating = OS.games[0]?.userRating || 1200;
 
   const sug = await suggestOpenings(OS.correlation);
   if (sug.focus.length) {
@@ -80,16 +105,39 @@ async function drawYours() {
         h('div', { class: 'hint tiny', style: { marginTop: '4px', color: 'var(--warn)' } }, o.scorePct < 45 ? 'You\'re struggling here — study the plans.' : 'Frequent — worth tightening up.')))));
   }
 
-  body.append(h('h2', { style: { marginTop: '22px' } }, `Your openings (${OS.correlation.length})`),
-    h('div', { class: 'card' }, h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, 'Opening'), h('th', {}, 'Games'), h('th', {}, 'Colors'), h('th', {}, 'Record'), h('th', {}, 'Score'), h('th', {}, ''))),
-      h('tbody', {}, ...OS.correlation.slice(0, 24).map((o) => h('tr', {},
-        h('td', {}, h('b', {}, o.family), o.topVariation && o.topVariation !== o.family ? h('div', { class: 'hint tiny' }, o.topVariation.replace(o.family + ': ', '')) : null),
-        h('td', {}, o.games),
-        h('td', { class: 'hint tiny' }, `${o.asWhite}W / ${o.asBlack}B`),
-        h('td', {}, `${o.w}-${o.l}-${o.d}`),
-        h('td', {}, scoreSpan(o.scorePct)),
-        h('td', {}, h('button', { class: 'btn small ghost', onclick: () => openByMoves(o.deepest) }, 'Study'))))))));
+  const accCell = (acc) => acc != null ? h('span', { style: { color: acc >= 80 ? 'var(--good)' : acc >= 70 ? 'var(--warn)' : 'var(--bad)', fontFamily: 'var(--mono)' } }, acc + '%') : h('span', { class: 'hint tiny' }, '—');
+  const colorTable = (color, label, icon) => {
+    const rows = OS.correlation.map((o) => ({ o, s: colorStats(o, color) })).filter((x) => x.s.games >= 1).sort((a, b) => b.s.games - a.s.games).slice(0, 16);
+    if (!rows.length) return null;
+    return h('div', { class: 'section' },
+      h('h2', {}, `${icon} As ${label}`),
+      h('div', { class: 'card' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Opening'), h('th', {}, 'Games'), h('th', {}, 'Record'), h('th', {}, 'Win%'), h('th', {}, 'Accuracy'), h('th', {}, ''))),
+        h('tbody', {}, ...rows.map(({ o, s }) => h('tr', {},
+          h('td', {}, h('b', {}, o.family), o.topVariation && o.topVariation !== o.family ? h('div', { class: 'hint tiny' }, o.topVariation.replace(o.family + ': ', '')) : null),
+          h('td', {}, s.games),
+          h('td', {}, `${s.w}-${s.l}-${s.d}`),
+          h('td', {}, scoreSpan(s.winPct)),
+          h('td', {}, accCell(s.acc)),
+          h('td', {}, h('button', { class: 'btn small ghost', onclick: () => openByMoves(o.deepest) }, 'Study'))))))));
+  };
+  const wt = colorTable('white', 'White', '♔'); if (wt) body.append(wt);
+  const bt = colorTable('black', 'Black', '♚'); if (bt) body.append(bt);
+
+  // Recommend a switch for a color where results are poor, matched to the player's rating.
+  const colorAvg = (color) => { const rows = OS.correlation.map((o) => colorStats(o, color)).filter((s) => s.games >= 2); const tot = rows.reduce((a, s) => a + s.games, 0); return tot ? Math.round(rows.reduce((a, s) => a + s.winPct * s.games, 0) / tot) : null; };
+  const recs = [];
+  const wAvg = colorAvg('white'), bAvg = colorAvg('black');
+  if (wAvg != null && wAvg < 48) recs.push({ color: 'White', avg: wAvg, ...recommendOpening('white', rating) });
+  if (bAvg != null && bAvg < 48) recs.push({ color: 'Black', avg: bAvg, ...recommendOpening('black', rating) });
+  if (recs.length) {
+    body.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent-2)' } },
+      h('h2', {}, '💡 Consider a change'),
+      h('div', { class: 'hint tiny', style: { marginBottom: '8px' } }, `For your rating (~${rating}) and results, a different opening might suit you better:`),
+      ...recs.map((r) => h('div', { style: { marginBottom: '10px' } },
+        h('b', {}, `As ${r.color} (scoring ${r.avg}%) — try ${r.name}`),
+        h('div', { class: 'hint', style: { fontSize: '13px' } }, `${r.why}. `, h('a', { href: 'https://listudy.org/en/studies', target: '_blank', rel: 'noopener', style: { color: 'var(--accent-2)' } }, 'Learn it on Listudy ↗'))))));
+  }
 
   if (sug.tryNew.length) {
     body.append(h('h2', { style: { marginTop: '22px' } }, 'Try something new'),
