@@ -11,6 +11,7 @@ import { playIntro } from '../intro.js';
 import { blunderQuestions } from '../coachquestions.js';
 import { recordSnapshot, progressDelta, getSnapshots, growthSvg } from '../progress.js';
 import { overview30, thisWeek, priorWeek, byCategory } from '../reports.js';
+import { bankGames, pauseBanking, resumeBanking, cancelBanking, isBanking } from '../banker.js';
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
 import { computeBadges, newlyEarned } from '../achievements.js';
 import { LESSONS } from '../lessons.js';
@@ -173,6 +174,7 @@ async function drawReport() {
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
     recordSnapshot(S.username, { rating: myGames[0]?.userRating || I.ratingAvg, acc: I.accAvg, dims });
+    startBanking(allMine); // bank the rest of the games deeply, in the background
     area.append(nextStepsCard(), reportCard(allMine));
     renderBadges(area, badgeData(myGames, eloPoints));
     renderCleanReport(area, {
@@ -250,7 +252,30 @@ function reportCard(games) {
     h('div', { style: { marginBottom: '10px' } }, h('b', {}, '📅 Last 30 days'),
       h('div', { class: 'hint tiny' }, o.games ? `${o.games} games · ${o.w}-${o.l}-${o.d} (${o.winPct}%)${rd(o)}` : 'No games in the last 30 days.')),
     h('div', {}, h('b', {}, '🗓️ This week'),
-      h('div', { class: 'hint tiny' }, w.games ? `${w.games} games · ${w.w}-${w.l}-${w.d} (${w.winPct}%)${rd(w)}${trend != null ? ` · ${trend >= 0 ? 'up' : 'down'} ${Math.abs(trend)}% vs last week` : ''}` : 'No games yet this week.')));
+      h('div', { class: 'hint tiny' }, w.games ? `${w.games} games · ${w.w}-${w.l}-${w.d} (${w.winPct}%)${rd(w)}${trend != null ? ` · ${trend >= 0 ? 'up' : 'down'} ${Math.abs(trend)}% vs last week` : ''}` : 'No games yet this week.')),
+    h('div', { class: 'hint tiny', id: 'bank-status', style: { marginTop: '8px', color: 'var(--accent-2)' } }, isBanking() ? '🔬 Banking deeper analysis in the background…' : ''));
+}
+
+// Background banking: after the report shows, quietly analyze the rest of the player's games
+// (up to 100) and cache each, so next login is instant and the weakness data keeps deepening.
+async function startBanking(games) {
+  if (S._bankingStarted) return;
+  S._bankingStarted = true;
+  let engine;
+  try { engine = await CTX.ensureEngine(); } catch { return; }
+  await bankGames(games, engine, {
+    cap: 100, depth: 12,
+    onProgress: (p) => {
+      const el = document.getElementById('bank-status');
+      if (el) el.textContent = p.done
+        ? `✓ Banked ${p.banked} games — saved on this device, so it loads instantly next time.`
+        : `🔬 Banking deeper analysis in the background: ${p.banked}/${p.total} games (you can keep using the app).`;
+      // when finished, quietly fold the deeper data in — only if still on the home report
+      if (p.done && document.getElementById('report-area') && !document.getElementById('board')) {
+        preloadCached().then(() => { if (document.getElementById('report-area') && !document.getElementById('board')) drawReport(); });
+      }
+    },
+  });
 }
 
 const DIM_NAME = { tactics: 'Tactics', openings: 'Openings', endgame: 'Endgame', advantage: 'Converting wins', resource: 'Defending', time: 'Clock management', consistency: 'Consistency' };
@@ -484,9 +509,10 @@ function controlsBar() {
 async function doImport() {
   const username = (S.username || '').trim();
   if (!username) return;
+  cancelBanking(); S._bankingStarted = false; S._scanned = null; // new player/refresh — reset background work
   store.set('profile.username', username);
   const area = document.getElementById('report-area');
-  if (area) clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your last 50 games…'));
+  if (area) clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your games…'));
   try {
     const games = await cc.fetchRecentGames(username, { months: 18, timeClass: 'all', limit: 320 });
     games.forEach((g) => (g.username = username));
@@ -535,8 +561,13 @@ async function openReview(game) {
     h('div', { class: 'card section', id: 'review-card' },
       h('div', { class: 'row' }, h('span', { class: 'spinner' }), h('span', { id: 'an-msg' }, ' Analyzing with Stockfish…')), prog),
   );
+  pauseBanking(); // this review jumps the engine queue ahead of background banking
   try {
     let analysis = S.analyses[game.url];
+    if (!analysis) { // already banked to the on-device cache? use it — instant, no re-analysis
+      try { const c = await store.cacheGet(game.url, 0); if (c && c.plies) analysis = { ...(c.summary || {}), plies: c.plies, cached: true, game }; } catch { /* ignore */ }
+      if (analysis) S.analyses[game.url] = analysis;
+    }
     if (!analysis) {
       const engine = await CTX.ensureEngine();
       analysis = await analyzeGame(game, engine, {
@@ -554,6 +585,8 @@ async function openReview(game) {
     const c = document.getElementById('review-card');
     if (c) clear(c).append(h('div', { class: 'empty' }, 'Analysis failed. ', h('span', { class: 'tiny' }, e.message)));
     console.error(e);
+  } finally {
+    resumeBanking(); // review loaded — let background banking continue
   }
 }
 
