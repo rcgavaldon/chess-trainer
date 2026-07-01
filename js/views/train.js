@@ -91,9 +91,9 @@ function drawHome() {
       h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startEndless },
         h('div', {}, h('b', {}, '♾️ Endless practice')),
         h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Never-ending fresh puzzles at your own pace.')),
-      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: () => CTX.navigate('personal') },
+      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startBlunders },
         h('div', {}, h('b', {}, '🎯 Your blunders')),
-        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Turn your own losing moves into puzzles.'))),
+        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Replay your own losing moves as puzzles — find what you missed.'))),
   );
 }
 
@@ -435,6 +435,31 @@ async function buildEndlessBatch() {
   const batch = await loadMixedBatch(themes.slice(0, 8), { count: 15, srs, exclude: seenSet() });
   markSeen(batch);
   return batch;
+}
+
+// Turn the player's OWN recent blunders (captured on their My Chess report) into puzzles: from
+// each losing position, find the move they should have played.
+async function startBlunders() {
+  stopTimer();
+  const focus = store.get('train.focus', null);
+  const blunders = (focus && focus.blunders) || [];
+  if (!blunders.length) {
+    clear(host).append(
+      h('div', { class: 'empty section' }, 'No blunders captured yet. Open the My Chess tab once so I can scan your recent games — your worst moments then show up here as puzzles to fix.'),
+      h('div', { class: 'row', style: { justifyContent: 'center' } }, h('button', { class: 'btn', onclick: () => CTX.navigate('personal') }, 'Go to My Chess →')));
+    return;
+  }
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Building puzzles from your blunders…'));
+  let engine = null;
+  try { engine = await CTX.ensureEngine(); } catch { /* no engine */ }
+  if (!engine) { clear(host).append(h('div', { class: 'empty' }, 'The engine couldn\'t start — try again in a moment.'), h('button', { class: 'btn ghost', onclick: drawHome }, '← Back')); return; }
+  const puzzles = [];
+  for (const b of blunders.slice(0, 8)) {
+    try { const p = await buildBlunderPuzzle(b.fen, b.gameUrl || '', engine, { maxPlies: 4, depth: 14 }); if (p) puzzles.push(p); } catch { /* skip this one */ }
+  }
+  if (!puzzles.length) { clear(host).append(h('div', { class: 'empty' }, 'Couldn\'t build blunder puzzles right now — try again after your next game scan.'), h('button', { class: 'btn ghost', onclick: drawHome }, '← Back')); return; }
+  DR.list = puzzles; DR.i = 0; DR.theme = 'blunders'; DR.label = 'Your blunders'; DR.onDone = drawHome; DR.endless = false; DR.solved = 0; DR.attempts = 0; DR.refill = null;
+  drillPuzzle();
 }
 
 async function startEndless() {

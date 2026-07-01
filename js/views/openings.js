@@ -124,19 +124,26 @@ async function drawYours() {
   const wt = colorTable('white', 'White', '♔'); if (wt) body.append(wt);
   const bt = colorTable('black', 'Black', '♚'); if (bt) body.append(bt);
 
-  // Recommend a switch for a color where results are poor, matched to the player's rating.
-  const colorAvg = (color) => { const rows = OS.correlation.map((o) => colorStats(o, color)).filter((s) => s.games >= 2); const tot = rows.reduce((a, s) => a + s.games, 0); return tot ? Math.round(rows.reduce((a, s) => a + s.winPct * s.games, 0) / tot) : null; };
-  const recs = [];
-  const wAvg = colorAvg('white'), bAvg = colorAvg('black');
-  if (wAvg != null && wAvg < 48) recs.push({ color: 'White', avg: wAvg, ...recommendOpening('white', rating) });
-  if (bAvg != null && bAvg < 48) recs.push({ color: 'Black', avg: bAvg, ...recommendOpening('black', rating) });
-  if (recs.length) {
+  // ALWAYS give a per-color assessment: how you score with White and with Black across your
+  // openings, and whether to keep your repertoire or switch to something that suits your rating.
+  const colorAvg = (color) => { const rows = OS.correlation.map((o) => colorStats(o, color)).filter((s) => s.games >= 2); const tot = rows.reduce((a, s) => a + s.games, 0); return tot ? { avg: Math.round(rows.reduce((a, s) => a + s.winPct * s.games, 0) / tot), games: tot } : null; };
+  const assess = [];
+  for (const [key, label] of [['white', 'White ♔'], ['black', 'Black ♚']]) {
+    const ca = colorAvg(key);
+    if (!ca) continue;
+    assess.push({ label, avg: ca.avg, games: ca.games, weak: ca.avg < 50, rec: recommendOpening(key, rating) });
+  }
+  if (assess.length) {
     body.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent-2)' } },
-      h('h2', {}, '💡 Consider a change'),
-      h('div', { class: 'hint tiny', style: { marginBottom: '8px' } }, `For your rating (~${rating}) and results, a different opening might suit you better:`),
-      ...recs.map((r) => h('div', { style: { marginBottom: '10px' } },
-        h('b', {}, `As ${r.color} (scoring ${r.avg}%) — try ${r.name}`),
-        h('div', { class: 'hint', style: { fontSize: '13px' } }, `${r.why}. `, h('a', { href: 'https://listudy.org/en/studies', target: '_blank', rel: 'noopener', style: { color: 'var(--accent-2)' } }, 'Learn it on Listudy ↗'))))));
+      h('h2', {}, '🎯 Your openings, by color'),
+      h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, `How you score with each color, and what to do about it (rating ~${rating}).`),
+      ...assess.map((a) => h('div', { style: { marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--line)' } },
+        h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
+          h('b', {}, `As ${a.label}`),
+          h('b', { style: { fontFamily: 'var(--mono)', color: a.avg >= 52 ? 'var(--good)' : a.avg >= 45 ? 'var(--warn)' : 'var(--bad)' } }, `${a.avg}% · ${a.games} games`)),
+        a.weak && a.rec
+          ? h('div', { class: 'hint', style: { fontSize: '13px', marginTop: '4px' } }, `Under 50% — consider switching to the ${a.rec.name}. ${a.rec.why}. `, h('a', { href: 'https://listudy.org/en/studies', target: '_blank', rel: 'noopener', style: { color: 'var(--accent-2)' } }, 'Learn it ↗'))
+          : h('div', { class: 'hint', style: { fontSize: '13px', marginTop: '4px' } }, `Solid — keep playing what you know.${a.rec ? ` To push further, the ${a.rec.name} also fits your level.` : ''}`)))));
   }
 
   if (sug.tryNew.length) {

@@ -8,7 +8,8 @@ import * as cc from '../chesscom.js';
 import * as personal from './personal.js';
 import { ingestLadder } from '../ladder.js';
 import { tiltSignals } from '../tilt.js';
-import { cloudEnabled, upsertStudent, fetchStudents } from '../cloud.js';
+import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots } from '../cloud.js';
+import { focusAreas } from '../report.js';
 
 const CS = { forms: {}, tilt: {}, group: 'ms', updating: false, lbRows: null, lbFilter: 'all', expanded: null, showManage: false };
 let CTX = null, host = null;
@@ -96,10 +97,24 @@ function lbRow(x, i) {
 
 async function loadDigest(x, box) {
   try {
-    const games = await cc.fetchRecentGames(x.username, { months: 3, timeClass: 'all', limit: 40 });
+    const [games, snaps] = await Promise.all([
+      cc.fetchRecentGames(x.username, { months: 3, timeClass: 'all', limit: 40 }),
+      fetchSnapshots(x.username).catch(() => []),
+    ]);
     const d = studentDigest(games);
+    d.focus = dimsFocusFromSnapshots(snaps); // the SAME engine assessment their own report shows, if they've opened it
     if (box.isConnected) clear(box).append(renderDigest(x, d));
   } catch { if (box.isConnected) clear(box).append(h('div', { class: 'hint tiny' }, 'Couldn\'t pull this student\'s games right now.')); }
+}
+
+// Rebuild the report's focus areas from a student's cached skill dimensions (published to the
+// cloud when they open their own report) so the coach digest and the student's report AGREE.
+function dimsFocusFromSnapshots(snaps) {
+  if (!snaps || !snaps.length) return null;
+  const dimObj = snaps[snaps.length - 1]?.dims; // fetchSnapshots orders by date ascending → last = newest
+  if (!dimObj || typeof dimObj !== 'object' || !Object.keys(dimObj).length) return null;
+  const dimsArr = Object.entries(dimObj).map(([key, score]) => ({ key, score, bonus: key === 'consistency' }));
+  try { return focusAreas(dimsArr); } catch { return null; }
 }
 
 // Cheap-but-real digest from public games (no engine): form, win-rate, color split, accuracy,
@@ -129,6 +144,23 @@ function studentDigest(games) {
   return { rating, w, l, d, winRate, whiteRate, blackRate, avgAcc, recs, count: recent.length };
 }
 
+// Prefer the SAME engine assessment the student's report shows; fall back to cheap signals + a
+// note only when they haven't opened their report yet (so the two never openly contradict).
+function needBlock(d) {
+  if (d.focus && d.focus.length) {
+    const primary = d.focus.filter((f) => f.primary).slice(0, 2);
+    const items = primary.length ? primary : d.focus.slice(0, 2);
+    return h('div', {},
+      h('div', { style: { fontSize: '13px', marginBottom: '6px' } }, h('b', {}, '📌 What they need '), h('span', { class: 'hint tiny' }, '(from their skill report)')),
+      ...items.map((f) => h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '6px' } },
+        h('b', {}, `${f.icon} ${f.label} `), h('span', { class: 'hint tiny', style: { fontFamily: 'var(--mono)' } }, `${f.score}/100`),
+        h('div', { style: { marginTop: '2px' } }, f.why))));
+  }
+  return h('div', {},
+    ...d.recs.map((rec, i) => h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '8px' } }, i === 0 ? h('b', {}, '📌 What they need: ') : h('b', {}, '• '), rec)),
+    h('div', { class: 'hint tiny', style: { marginTop: '2px' } }, 'From recent games — have them open their student link once for the full engine breakdown.'));
+}
+
 function renderDigest(x, d) {
   const stat = (label, val, color) => h('div', { style: { textAlign: 'center', minWidth: '64px' } },
     h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '18px', color: color || 'var(--text)' } }, val),
@@ -142,7 +174,7 @@ function renderDigest(x, d) {
       d.avgAcc != null ? stat('Accuracy', `${d.avgAcc}%`) : null,
       d.whiteRate != null ? stat('as White', `${d.whiteRate}%`) : null,
       d.blackRate != null ? stat('as Black', `${d.blackRate}%`) : null),
-    ...d.recs.map((rec, i) => h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '8px' } }, i === 0 ? h('b', {}, '📌 What they need: ') : h('b', {}, '• '), rec)),
+    needBlock(d),
     h('div', { class: 'row', style: { marginTop: '10px', gap: '8px', flexWrap: 'wrap' } },
       h('button', { class: 'btn small', onclick: stopped(() => { personal.requestImport(x.username); CTX.navigate('personal'); }) }, 'Open full report →'),
       h('button', { class: 'btn ghost small', onclick: stopped((e) => copy(studentLink({ u: x.username, name: x.name, g: x.group_id }, getRoster().coach), e.currentTarget, '✓ Link')) }, '🔗 Student link')));

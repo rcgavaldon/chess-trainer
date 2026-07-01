@@ -25,6 +25,7 @@ import {
   buildBlunderPuzzle, puzzleFromLichessJson, lichessApi, checkMove, toMoveObj,
   recordAttempt, difficultyForTheme, loadThemeShard,
 } from '../puzzles.js';
+import { cloudEnabled, upsertSnapshot, fetchStudents } from '../cloud.js';
 
 const S = { username: '', timeClass: null, games: [], analyses: {} }; // analyses keyed by game.url; timeClass null = auto-pick primary
 let CTX = null;
@@ -174,6 +175,7 @@ async function drawReport() {
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
     recordSnapshot(S.username, { rating: myGames[0]?.userRating || I.ratingAvg, acc: I.accAvg, dims });
+    publishAssessment(myGames[0]?.userRating || I.ratingAvg, I.accAvg, dims); // share the REAL dims so the coach's leaderboard digest matches this report
     startBanking(allMine); // bank the rest of the games deeply, in the background
     if (store.get('profile.role') === 'student') {
       // STUDENTS get the gist + clear actions, not the deep analytics.
@@ -309,6 +311,37 @@ function progressCard(username) {
 
 // STUDENT view: the gist + 3 clear, actionable steps (train elsewhere), review, progress —
 // none of the deep analytics the coach sees.
+// Publish this player's engine-computed skill dimensions to the shared backend, so a coach
+// clicking them on the leaderboard sees the SAME assessment this report shows — not a second,
+// contradictory read from cheap signals.
+function publishAssessment(rating, acc, dims) {
+  if (!cloudEnabled() || !S.username) return;
+  const dimObj = {};
+  for (const x of (dims || [])) if (x && x.key != null) dimObj[x.key] = x.score;
+  const d = new Date().toISOString().slice(0, 10);
+  upsertSnapshot({ username: S.username.toLowerCase(), d, rating: Math.round(rating) || null, acc: Math.round(acc) || null, dims: dimObj }).catch(() => { /* offline — local snapshot still saved */ });
+}
+
+// Students should see where they stand — the class leaderboard, with themselves highlighted.
+function studentLeaderboardCard() {
+  if (!cloudEnabled()) return null;
+  const wrap = h('div', { class: 'card section', id: 'stu-lb' }, h('h2', {}, '🏆 Class leaderboard'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
+  const me = (S.username || '').toLowerCase();
+  fetchStudents().then((rows) => {
+    if (!document.getElementById('stu-lb')) return;
+    const ranked = (rows || []).filter((x) => x.ladder_rating != null).sort((a, b) => b.ladder_rating - a.ladder_rating);
+    if (!ranked.length) { clear(wrap).append(h('h2', {}, '🏆 Class leaderboard'), h('div', { class: 'hint tiny' }, 'No ranked players yet — check back once your class plays some games.')); return; }
+    clear(wrap).append(h('h2', {}, '🏆 Class leaderboard'),
+      h('div', {}, ...ranked.slice(0, 20).map((x, i) => {
+        const mine = (x.username || '').toLowerCase() === me;
+        return h('div', { class: 'row', style: { justifyContent: 'space-between', padding: '7px 10px', borderTop: i ? '1px solid var(--line)' : 'none', background: mine ? 'rgba(125,211,95,.12)' : 'transparent', borderRadius: mine ? '6px' : '0' } },
+          h('div', {}, h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)', marginRight: '10px' } }, i + 1), (x.name || x.username), mine ? h('span', { style: { color: 'var(--accent-2)', fontWeight: 700 } }, ' ← you') : null),
+          h('b', { style: { fontFamily: 'var(--mono)' } }, x.ladder_rating));
+      })));
+  }).catch(() => { if (document.getElementById('stu-lb')) clear(wrap).append(h('h2', {}, '🏆 Class leaderboard'), h('div', { class: 'hint tiny' }, 'Leaderboard unavailable right now.')); });
+  return wrap;
+}
+
 function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints, scope, scopeName }) {
   const focus = focusAreas(dims);
   const name = store.get('profile.ownerName', '') || 'there';
@@ -331,6 +364,8 @@ function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints
       h('b', {}, '📈 You\'re improving!'),
       h('div', { class: 'hint' }, `Your ${dimName(pd.mostImproved.key)} is up +${pd.mostImproved.delta} lately${pd.ratingDelta != null ? `, and your rating ${pd.ratingDelta >= 0 ? '+' : ''}${pd.ratingDelta}` : ''}. Keep it going!`)));
   }
+  const lb = studentLeaderboardCard();
+  if (lb) area.append(lb);
   renderBadges(area, badgeData(myGames, eloPoints));
   area.append(gamesDetails());
 }
