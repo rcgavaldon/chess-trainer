@@ -1,14 +1,45 @@
-// views/train.js — Puzzle Storm + themed/endgame drills, off the curated shards.
+// views/train.js — the Puzzles hub: pick-your-theme puzzles, Name-the-Mate, and an
+// ELO-ramped Puzzle Storm, all off the curated shards.
 import { h, clear } from '../dom.js';
 import * as store from '../storage.js';
+import { Chess } from 'chess.js';
 import { loadFullShard, loadThemeShard, loadMixedBatch, recordAttempt, buildBlunderPuzzle } from '../puzzles.js';
 import { mountPuzzle } from '../puzzleplay.js';
 import { mountChat } from '../chatcoach.js';
+import { MATE_PATTERNS, IDENTIFY_OPTIONS, correctIdentify, basicName } from '../checkmates.js';
 
 const TR = { _timer: null };
 let CTX = null, host = null;
 
 const STORM_THEMES = ['mateIn1', 'fork', 'pin', 'hangingPiece', 'backRankMate', 'mateIn2', 'skewer', 'discoveredAttack', 'deflection', 'sacrifice', 'mateIn3', 'trappedPiece', 'attraction', 'intermezzo', 'kingsideAttack', 'capturingDefender'];
+
+// Themes offered in the "pick what you want" puzzle picker (label + shard key).
+const THEME_CHOICES = [
+  { t: 'fork', l: '🍴 Forks' }, { t: 'pin', l: '📌 Pins' }, { t: 'skewer', l: '🍢 Skewers' },
+  { t: 'hangingPiece', l: '🎁 Hanging pieces' }, { t: 'discoveredAttack', l: '💥 Discovered attacks' },
+  { t: 'deflection', l: '↩️ Deflection' }, { t: 'sacrifice', l: '⚔️ Sacrifices' }, { t: 'attraction', l: '🧲 Attraction' },
+  { t: 'intermezzo', l: '⏸️ In-between moves' }, { t: 'mateIn1', l: '① Mate in 1' }, { t: 'mateIn2', l: '② Mate in 2' },
+  { t: 'mateIn3', l: '③ Mate in 3' }, { t: 'backRankMate', l: '⬛ Back-rank mates' }, { t: 'promotion', l: '👑 Promotion' },
+  { t: 'advancedPawn', l: '⬆️ Passed pawns' }, { t: 'endgame', l: '🏁 Endgames' }, { t: 'rookEndgame', l: '♜ Rook endgames' },
+  { t: 'pawnEndgame', l: '♙ Pawn endgames' }, { t: 'queenEndgame', l: '♛ Queen endgames' }, { t: 'knightEndgame', l: '♞ Knight endgames' },
+];
+
+// The player's rating anchor for adaptive difficulty (cached; refreshed from Chess.com).
+async function getBaseRating() {
+  const cached = store.get('profile.peakRating', null);
+  const u = store.get('profile.username', '');
+  if (cached) { refreshBaseRating(u); return cached; }
+  return (await refreshBaseRating(u)) || 1200;
+}
+async function refreshBaseRating(u) {
+  if (!u) return null;
+  try {
+    const s = await fetch(`https://api.chess.com/pub/player/${u}/stats`).then((x) => x.json());
+    const peak = Math.max(s.chess_rapid?.best?.rating || 0, s.chess_blitz?.best?.rating || 0, s.chess_rapid?.last?.rating || 0, s.chess_blitz?.last?.rating || 0);
+    if (peak) { store.set('profile.peakRating', peak); return peak; }
+  } catch { /* offline — fall back to cache/default */ }
+  return store.get('profile.peakRating', null);
+}
 const DRILLS = [
   { theme: 'fork', label: 'Forks', desc: 'Hit two things at once.' },
   { theme: 'pin', label: 'Pins', desc: 'Freeze a piece to something bigger.' },
@@ -40,32 +71,29 @@ function drawHome() {
   clear(host);
   const streak = store.get('train.streak', { count: 0 });
   const done = dailyDoneToday();
-  const focus = store.get('train.focus', null);
-  const plan = store.get('train.plan', null);
-  const focusNote = focus && focus.themes && focus.themes.length
-    ? `Weighted to your weak spots (${focus.themes.slice(0, 2).map(themeLabelShort).join(', ')}) plus a couple from your own games.`
-    : 'Open the Personal tab once so I can scan your games and target your weak spots — until then it\'s a balanced mix.';
+  const bigCard3 = (icon, title, desc, btn, fn) => h('div', { class: 'card', style: { display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer' }, onclick: fn },
+    h('div', { style: { fontSize: '30px' } }, icon),
+    h('div', { style: { fontSize: '18px', fontWeight: 800 } }, title),
+    h('div', { class: 'hint', style: { flex: 1 } }, desc),
+    h('button', { class: 'btn', style: { marginTop: '4px', alignSelf: 'flex-start' }, onclick: fn }, btn));
   host.append(
-    h('h1', {}, 'Train'),
-    h('p', { class: 'hint' }, 'Sharpen your tactics. A daily set built for you, Puzzle Storm for speed, focused drills for the patterns you miss.'),
-    h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2), var(--shadow-sm)' } },
-      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'flex-start' } },
-        h('div', { style: { flex: 1 } },
-          h('div', { style: { fontSize: '18px', fontWeight: 800 } }, '📅 Today\'s training'),
-          plan && plan.focus ? h('div', { style: { marginTop: '4px', fontWeight: 600, color: 'var(--accent-2)' } }, `Your coach says: focus on ${plan.focus.toLowerCase()}`) : null,
-          h('div', { class: 'hint', style: { marginTop: '4px' } }, done ? 'Done for today — nice work. Come back tomorrow to keep your streak.' : (plan && plan.study ? plan.study : focusNote))),
-        h('div', { style: { textAlign: 'right' } }, h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '20px' } }, '🔥 ' + (streak.count || 0)), h('div', { class: 'hint tiny' }, 'day streak'))),
-      h('button', { class: 'btn', style: { marginTop: '12px' }, disabled: done, onclick: startDaily }, done ? '✓ Completed today' : 'Start today\'s training (12 puzzles)')),
-    h('div', { class: 'section', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '14px' } },
-      bigCard('⚡ Puzzle Storm', `As many as you can in 3 min. 3 lives. Best: ${store.get('train.stormBest', 0)}`, 'Start storm', startStorm, true),
-      bigCard('♾️ Endless practice', 'Never-ending fresh puzzles aimed at your weak spots. Solve at your own pace.', 'Start practice', startEndless),
-      bigCard('🧩 Your blunders', 'Turn your own losing moves into puzzles.', 'Go to Personal', () => CTX.navigate('personal')),
-    ),
-    h('h2', { class: 'section' }, 'Focused drills'),
-    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: '12px' } },
-      ...DRILLS.map((d) => h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: () => startDrill(d.theme, d.label) },
-        h('div', {}, h('b', {}, d.label), h('span', { class: 'hint tiny', style: { marginLeft: '8px', fontFamily: 'var(--mono)' } }, masteryFor(d.theme))),
-        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, d.desc)))),
+    h('h1', {}, '🧩 Puzzles'),
+    h('p', { class: 'hint' }, 'Three ways to train: pick the patterns you want, learn to finish games with the classic mates, or race the clock as the difficulty ramps to your level.'),
+    h('div', { class: 'section', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: '14px' } },
+      bigCard3('🧩', 'Puzzles', 'Choose exactly what you drill — all patterns, a few, or just one. Tuned to your rating.', 'Choose themes →', renderThemePicker),
+      bigCard3('♛', 'Name the Mate', 'Deliver the checkmate from a real game, then name the pattern. Bobby-Fischer style, explained.', 'Train mates →', renderMateHome),
+      bigCard3('🌪', 'Puzzle Storm', `Race the clock as puzzles ramp from easy up past your level. Best: ${store.get('train.stormBest', 0)}`, 'Start storm →', startStorm)),
+    h('h2', { class: 'section' }, 'More practice'),
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } },
+      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startDaily },
+        h('div', {}, h('b', {}, done ? '✓ Daily training' : '📅 Daily training'), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, `🔥 ${streak.count || 0}`)),
+        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, done ? 'Done today — come back tomorrow.' : '12 puzzles aimed at your weak spots.')),
+      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startEndless },
+        h('div', {}, h('b', {}, '♾️ Endless practice')),
+        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Never-ending fresh puzzles at your own pace.')),
+      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: () => CTX.navigate('personal') },
+        h('div', {}, h('b', {}, '🎯 Your blunders')),
+        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Turn your own losing moves into puzzles.'))),
   );
 }
 
@@ -78,13 +106,147 @@ function bigCard(title, desc, btn, fn, primary) {
 
 function masteryFor(theme) { const r = store.get('puzzles.srs.themes.' + theme + '.rating', null); return r ? '★ ' + r : 'new'; }
 
+// ---------------- pick-your-theme puzzles ----------------
+const PICK = { sel: new Set() };
+function renderThemePicker() {
+  stopTimer(); clear(host);
+  const sel = PICK.sel, count = sel.size;
+  const chip = (t, l) => h('button', { class: 'chip', style: sel.has(t) ? { background: 'var(--accent)', color: '#0a1e12', fontWeight: 700, borderColor: 'var(--accent)' } : {}, onclick: () => { sel.has(t) ? sel.delete(t) : sel.add(t); renderThemePicker(); } }, l);
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: drawHome }, '← Puzzles'),
+      h('div', { class: 'hint tiny' }, count ? `${count} selected` : 'pick what you want')),
+    h('h1', { style: { marginTop: '6px' } }, '🧩 Pick your puzzles'),
+    h('p', { class: 'hint' }, 'Choose all of them, just a few, or a single pattern — then train a set tuned to your rating.'),
+    h('div', { class: 'row', style: { gap: '8px', margin: '4px 0 12px' } },
+      h('button', { class: 'btn small', onclick: () => { THEME_CHOICES.forEach((c) => sel.add(c.t)); renderThemePicker(); } }, 'Select all'),
+      h('button', { class: 'btn ghost small', onclick: () => { sel.clear(); renderThemePicker(); } }, 'Clear')),
+    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } }, ...THEME_CHOICES.map((c) => chip(c.t, c.l))),
+    h('div', { class: 'section' },
+      h('button', { class: 'btn', disabled: !count, onclick: () => startThemePuzzles([...sel]) },
+        count === 1 ? `Start ${THEME_CHOICES.find((c) => c.t === [...sel][0]).l.replace(/^\S+\s/, '')} →` : count ? `Start ${count} themes →` : 'Select at least one')));
+}
+
+async function startThemePuzzles(themes) {
+  stopTimer();
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading puzzles…'));
+  const base = await getBaseRating();
+  const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} });
+  const list = themes.length === 1
+    ? await loadThemeShard(themes[0], { count: 15, targetRating: base, exclude: seenSet() }).catch(() => null)
+    : await loadMixedBatch(themes, { count: 15, srs, exclude: seenSet() }).catch(() => null);
+  if (!list || !list.length) { clear(host).append(h('div', { class: 'empty' }, 'No puzzles for that selection right now.'), h('button', { class: 'btn ghost', onclick: renderThemePicker }, '← Back')); return; }
+  markSeen(list);
+  const label = themes.length === 1 ? (THEME_CHOICES.find((c) => c.t === themes[0])?.l || 'Puzzles') : `${themes.length} themes`;
+  DR.list = list; DR.i = 0; DR.theme = themes.join(','); DR.label = label; DR.onDone = renderThemePicker; DR.endless = false; DR.solved = 0; DR.attempts = 0;
+  drillPuzzle();
+}
+
+// ---------------- Name the Mate (Bobby Fischer style) ----------------
+const MATE = { patternObj: null, puzzles: null, idx: 0 };
+function renderMateHome() {
+  stopTimer(); clear(host);
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: drawHome }, '← Puzzles'),
+      h('div', { class: 'hint tiny' }, 'Bobby Fischer style')),
+    h('h1', { style: { marginTop: '6px' } }, '♛ Name the Mate'),
+    h('p', { class: 'hint' }, 'A position from a real game. Deliver the checkmate on the board, then name the pattern — the more you see them, the faster they jump out in your own games.'),
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: '14px' } },
+      ...MATE_PATTERNS.map((m) => h('div', { class: 'card', style: { cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '5px' }, onclick: () => startMate(m) },
+        h('b', { style: { fontSize: '16px' } }, `${m.icon} ${m.name}`),
+        h('div', { class: 'hint tiny' }, m.blurb)))));
+}
+
+async function startMate(m) {
+  MATE.patternObj = m; MATE.puzzles = null; MATE.idx = 0;
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading mates…'));
+  const base = await getBaseRating();
+  const per = Math.ceil(10 / m.shards.length) + 1;
+  const all = [];
+  for (const sh of m.shards) { const got = await loadThemeShard(sh, { count: per, targetRating: base }); if (got) all.push(...got); }
+  for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+  const pz = all.slice(0, 10);
+  if (!pz.length) { clear(host).append(h('div', { class: 'empty' }, 'Couldn\'t load these right now.'), h('button', { class: 'btn ghost', onclick: renderMateHome }, '← Back')); return; }
+  MATE.puzzles = pz; MATE.idx = 0; playMate();
+}
+
+function playMate() {
+  const p = MATE.puzzles[MATE.idx], m = MATE.patternObj;
+  clear(host);
+  const chess = new Chess(p.fen);
+  const toMove = chess.turn() === 'w' ? 'White' : 'Black';
+  const plies = p.solutionMoves.length;
+  const ask = plies <= 1 ? 'deliver checkmate in one move.' : `force checkmate (mate in ${Math.ceil(plies / 2)}).`;
+  const status = h('div', { class: 'puzzle-status' }, `${toMove} to move — ${ask}`);
+  const side = h('div', { class: 'sidebar' });
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: renderMateHome }, '← Patterns'),
+      h('div', { class: 'hint tiny' }, `${m.name} · ${MATE.idx + 1} of ${MATE.puzzles.length}`)),
+    h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
+      h('div', { class: 'board-wrap' }, h('div', { id: 'mate-board' })),
+      side));
+  const ctrl = mountPuzzle(document.getElementById('mate-board'), p, {
+    allowRetry: true,
+    onWrong: (_pz, first) => { status.textContent = first ? 'Not mate — that lets the king escape. Look again.' : 'Still not mate. Try the hint.'; status.className = 'puzzle-status no'; },
+    onSolved: () => onMateSolved(side, p),
+  });
+  clear(side).append(status, h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => ctrl.hint() }, '💡 Hint')));
+}
+
+function onMateSolved(side, p) {
+  clear(side);
+  if (MATE.patternObj.key === 'mix') {
+    side.append(
+      h('div', { class: 'puzzle-status ok' }, '✓ Checkmate!'),
+      h('div', { class: 'hint', style: { margin: '8px 0' } }, 'What kind of mate did you just deliver?'),
+      ...IDENTIFY_OPTIONS.map((o) => h('button', { class: 'btn ghost', style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '8px' }, onclick: () => revealIdentify(side, p, o.key) }, o.label)));
+  } else revealMate(side, MATE.patternObj.name, MATE.patternObj.teach);
+}
+
+function revealIdentify(side, p, guess) {
+  const correct = correctIdentify(p);
+  const right = guess === correct;
+  const named = MATE_PATTERNS.find((m) => m.key === correct);
+  const name = correct === 'basic' ? basicName(p) : named.name;
+  const teach = correct === 'basic' ? 'A clean forced mate — the bread and butter of finishing a game.' : named.teach;
+  clear(side).append(
+    h('div', { class: right ? 'puzzle-status ok' : 'puzzle-status no' }, right ? `✓ Right — ${name}` : `Actually — ${name}`),
+    h('div', { class: 'explain-box', style: { margin: '10px 0', fontSize: '13px' } }, teach),
+    h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, 'From a real game.'), nextMateBtn());
+}
+
+function revealMate(side, name, teach) {
+  clear(side).append(
+    h('div', { class: 'puzzle-status ok' }, `✓ ${name}!`),
+    h('div', { class: 'explain-box', style: { margin: '10px 0', fontSize: '13px' } }, teach),
+    h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, 'From a real game.'), nextMateBtn());
+}
+
+function nextMateBtn() {
+  const last = MATE.idx >= MATE.puzzles.length - 1;
+  return h('button', { class: 'btn', onclick: () => { if (last) finishMates(); else { MATE.idx++; playMate(); } } }, last ? 'Done ✓' : 'Next mate →');
+}
+
+function finishMates() {
+  const m = MATE.patternObj, n = MATE.puzzles.length;
+  clear(host).append(h('div', { class: 'empty', style: { paddingTop: '40px' } },
+    h('div', { style: { fontSize: '44px' } }, '♚'),
+    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `${n} checkmates delivered!`),
+    h('div', { class: 'hint', style: { marginTop: '6px' } }, 'Pattern recognition is pure repetition — the more mates you see, the faster they appear in your own games.'),
+    h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px', gap: '10px' } },
+      h('button', { class: 'btn', onclick: () => startMate(m) }, `↻ More ${m.name.toLowerCase()}`),
+      h('button', { class: 'btn ghost', onclick: renderMateHome }, 'All patterns'))));
+}
+
 // ---------------- Puzzle Storm ----------------
 const ST = { pool: [], i: 0, score: 0, lives: 3, streak: 0, bestStreak: 0, time: 180, over: false };
 
 async function startStorm() {
   stopTimer();
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading puzzles…'));
-  // ramped pool: combine themed shards, sort easy → hard
+  const base = await getBaseRating();
   const all = [];
   for (const t of STORM_THEMES) { try { (await loadFullShard(t)).forEach((p) => all.push(p)); } catch {} }
   if (!all.length) { clear(host).append(h('div', { class: 'empty' }, 'Puzzles unavailable right now.'), h('button', { class: 'btn ghost', onclick: drawHome }, '← Back')); return; }
@@ -93,12 +255,34 @@ async function startStorm() {
   // prefer puzzles you haven't seen recently, so every storm is fresh
   const recent = seenSet();
   const fresh = uniq.filter((p) => !recent.has(p.id));
-  if (fresh.length > 200) uniq = fresh;
-  uniq.sort((a, b) => (a.rating || 1500) - (b.rating || 1500));
-  ST.pool = uniq; ST.i = 0; ST.score = 0; ST.lives = 3; ST.streak = 0; ST.bestStreak = 0; ST.time = 180; ST.over = false;
+  if (fresh.length > 300) uniq = fresh;
+  ST.pool = buildRamp(uniq, base); ST.base = base;
+  ST.i = 0; ST.score = 0; ST.lives = 3; ST.streak = 0; ST.bestStreak = 0; ST.time = 180; ST.over = false;
   renderStormFrame();
   TR._timer = setInterval(() => { if (ST.over) return; ST.time--; updateHud(); if (ST.time <= 0) endStorm(); }, 1000);
   loadStormPuzzle();
+}
+
+// Difficulty ramp centered on the player's rating: begin ~300 below, climb to their level over
+// the first stretch, then nudge a little past it (and hold there) so it keeps getting harder —
+// but only slightly — to keep them in flow rather than slamming into a wall.
+function buildRamp(pool, base) {
+  const start = base - 300, top = base + 150, N = 80;
+  const sorted = pool.slice().sort((a, b) => (a.rating || 1500) - (b.rating || 1500));
+  const used = new Set();
+  const ramp = [];
+  for (let i = 0; i < N; i++) {
+    const target = i < 25 ? start + (base - start) * (i / 25) : base + (top - base) * Math.min(1, (i - 25) / 20);
+    let best = null, bestD = 1e9;
+    for (const p of sorted) {
+      if (used.has(p.id)) continue;
+      const d = Math.abs((p.rating || 1500) - target);
+      if (d < bestD) { bestD = d; best = p; }
+      if ((p.rating || 1500) > target + 400) break; // sorted → nothing closer past here
+    }
+    if (best) { used.add(best.id); ramp.push(best); } else break;
+  }
+  return ramp;
 }
 
 function renderStormFrame() {
