@@ -37,7 +37,9 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
 }
+button, a, .chip, .card, .game-row { -webkit-tap-highlight-color: transparent; }
 a { color: var(--accent-2); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .muted { color: var(--muted); }
@@ -296,27 +298,106 @@ details.more > summary:hover { color: var(--text); }
 .trainer-board { grid-area: board; } .trainer-coach { grid-area: coach; } .trainer-side { grid-area: side; display: flex; flex-direction: column; gap: 12px; }
 @media (max-width: 860px) { .trainer-grid { grid-template-columns: 1fr; grid-template-areas: 'coach' 'board' 'side'; } .trainer-board { width: 100%; max-width: 480px; margin: 0 auto; } }
 
-/* ---- mobile ---- */
+/* ============================================================
+   MOBILE — Apple-style facelift: bottom tab bar, roomy spacing,
+   big touch targets, and type that breathes.
+   ============================================================ */
 @media (max-width: 720px) {
-  .topbar { gap: 8px; padding: 0 10px; height: 54px; }
-  .brand { font-size: 15px; }
-  .brand span:last-child { display: none; } /* show only the knight + 'Chess' shrinks */
-  .tabs { margin-left: 2px; padding: 3px; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .tabs::-webkit-scrollbar { height: 0; }
-  .tabs a { padding: 6px 11px; font-size: 13px; white-space: nowrap; }
+  body { font-size: 16px; background-attachment: scroll; }
+  main { max-width: 100%; padding: 16px 16px calc(92px + env(safe-area-inset-bottom)); }
+
+  /* --- top bar: pared back to brand + settings (nav lives at the bottom now) ---
+     NOTE: no backdrop-filter here — it would create a containing block that traps the
+     position:fixed bottom tab bar (a .tabs child) inside the header. Solid bg instead. --- */
+  .topbar {
+    gap: 10px; padding: env(safe-area-inset-top) 16px 0;
+    height: calc(54px + env(safe-area-inset-top));
+    background: rgba(16, 21, 27, .97); backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+  .brand { font-size: 18px; }
   .owner-badge { display: none; }
-  main { padding: 18px 12px 90px; }
-  h1 { font-size: 21px; }
-  .controls { padding: 12px; }
+  .icon-btn { margin-left: auto; width: 42px; height: 42px; border-radius: 12px; font-size: 18px; }
+
+  /* --- bottom tab bar (iOS TabBar) --- */
+  .tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; margin: 0;
+    display: flex; justify-content: space-around; gap: 0; overflow: visible; border-radius: 0;
+    padding: 8px 6px calc(7px + env(safe-area-inset-bottom));
+    background: rgba(14, 19, 25, .85); backdrop-filter: saturate(180%) blur(24px); -webkit-backdrop-filter: saturate(180%) blur(24px);
+    border-top: 1px solid var(--line);
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    padding: 4px 2px; min-height: 48px; border-radius: 14px; white-space: nowrap;
+    font-size: 10.5px; font-weight: 600; letter-spacing: -.1px; color: var(--faint);
+    background: none !important; box-shadow: none !important; transition: color .15s;
+  }
+  .tabs a::before { font-size: 22px; line-height: 1; filter: grayscale(1) opacity(.7); transition: transform .18s, filter .18s; }
+  .tabs a:active::before { transform: scale(.9); }
+  .tabs a.active { color: var(--accent); }
+  .tabs a.active::before { filter: none; transform: translateY(-1px) scale(1.05); }
+  .tabs a[data-route="personal"]::before   { content: '♟️'; }
+  .tabs a[data-route="openings"]::before    { content: '📖'; }
+  .tabs a[data-route="train"]::before       { content: '🧩'; }
+  .tabs a[data-route="class"]::before       { content: '👥'; }
+  .tabs a[data-route="tournament"]::before  { content: '🏆'; }
+
+  /* --- type --- */
+  h1 { font-size: 25px; letter-spacing: -.5px; margin-bottom: 8px; }
+  h2 { font-size: 17px; }
+  .section { margin-top: 24px; }
+  p.hint, .hint { font-size: 14px; }
+
+  /* --- touch-friendly controls (44px+ targets, 16px inputs to stop iOS zoom) --- */
+  .btn { padding: 13px 20px; font-size: 15px; border-radius: 13px; min-height: 48px; }
+  .btn:active { transform: scale(.97); }
+  .btn.small { padding: 9px 15px; font-size: 14px; min-height: 40px; border-radius: 10px; }
+  input, select, textarea { font-size: 16px; padding: 13px 14px; border-radius: 13px; }
+  .chip { padding: 10px 16px; font-size: 14px; border-radius: 22px; }
+  .chip:active { transform: scale(.96); }
+  .nav-controls button { padding: 14px 6px; font-size: 18px; min-height: 48px; border-radius: 12px; }
+
+  /* --- cards: softer + roomier --- */
+  .card { border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
+  .explain-box { border-radius: 16px; padding: 16px; min-height: 0; }
+  .empty { padding: 40px 20px; border-radius: 18px; }
+  .controls { padding: 14px; border-radius: 16px; }
   .controls .field { flex: 1 1 100%; }
   .controls .field.username input, .controls .field.tc select { width: 100%; }
   .controls .field[style*='margin-left'] { margin-left: 0 !important; }
-  table { font-size: 13px; } th, td { padding: 8px 6px; }
-  .stat .v { font-size: 22px; }
-  .accbar { gap: 18px; }
-  .game-row { grid-template-columns: 52px 1fr 70px; gap: 8px; }
+
+  /* --- board near full width --- */
+  .review { grid-template-columns: 18px 1fr; gap: 10px; }
+  .review[style], .trainer-grid { grid-template-columns: 1fr !important; grid-template-areas: none !important; }
+  .trainer-board { width: 100%; max-width: 100%; margin: 0; }
+  #board, .cg-wrap, .board-wrap { width: calc(100vw - 32px); height: calc(100vw - 32px); border-radius: 14px; }
+  .evalbar { height: calc(100vw - 32px); }
+
+  /* --- stats / snapshot --- */
+  .stat-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat { padding: 15px 16px; border-radius: 16px; }
+  .stat .v { font-size: 24px; }
+  .snap { flex: 1 1 45%; border-right: none; padding: 8px 10px; }
+  .accbar { gap: 20px; }
+
+  /* --- tables: readable, not cramped --- */
+  table { font-size: 14px; }
+  th, td { padding: 12px 8px; }
+  th { font-size: 10.5px; }
+
+  /* --- rows --- */
+  .game-row { grid-template-columns: 50px 1fr 66px; gap: 8px; padding: 13px; border-radius: 14px; }
   .game-row > :nth-child(3) { display: none; }
-  .review { grid-template-columns: 22px 1fr; gap: 10px; }
-  #board, .cg-wrap, .board-wrap { width: calc(100vw - 56px); height: calc(100vw - 56px); }
-  .nav-controls button { padding: 11px 6px; font-size: 17px; }
+  .lb-row { padding: 13px 14px !important; }
+  .focus-row { grid-template-columns: 34px 1fr; gap: 10px; }
+  .focus-row > a, .focus-row > button { grid-column: 1 / -1; justify-self: stretch; text-align: center; margin-top: 6px; }
+  .ex-move { grid-template-columns: 52px 1fr 78px; }
+
+  /* --- dialogs --- */
+  dialog { width: 94vw; border-radius: 22px; }
+  .settings-form { padding: 22px; }
+
+  /* --- toasts respect the bottom bar --- */
+  .engine-status { bottom: calc(84px + env(safe-area-inset-bottom)); right: 12px; left: 12px; max-width: none; }
 }
