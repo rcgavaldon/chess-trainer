@@ -8,6 +8,7 @@ import * as cc from '../chesscom.js';
 import * as personal from './personal.js';
 import { ingestLadder, standings, mostImproved } from '../ladder.js';
 import { tiltSignals, tiltColor } from '../tilt.js';
+import { cloudEnabled, setCloudConfig, ping, upsertStudent, fetchStudents } from '../cloud.js';
 
 const CS = { forms: {}, tilt: {}, group: 'ms', updating: false };
 let CTX = null, host = null;
@@ -23,6 +24,64 @@ function getRoster() {
   return r;
 }
 function saveRoster(r) { store.set('class.roster', r); } // auto-saves on every change
+
+// ---- shared backend (optional): connect, sync roster, live leaderboard ----
+function cloudPanel(r) {
+  if (!cloudEnabled()) {
+    const url = h('input', { type: 'text', placeholder: 'https://xxxx.supabase.co', style: { fontFamily: 'var(--mono)', fontSize: '12px' } });
+    const key = h('input', { type: 'password', placeholder: 'anon public key (eyJ…)', style: { fontFamily: 'var(--mono)', fontSize: '12px' } });
+    const msg = h('div', { class: 'hint tiny' });
+    const connect = async () => {
+      if (!url.value.trim() || !key.value.trim()) { msg.textContent = 'Paste both the URL and the anon key.'; return; }
+      setCloudConfig(url.value, key.value); msg.textContent = 'Connecting…';
+      try { await ping(); msg.textContent = '✓ Connected!'; await syncToCloud(r); draw(); }
+      catch (e) { setCloudConfig('', ''); msg.textContent = '✗ Could not connect: ' + e.message.slice(0, 90); }
+    };
+    return h('div', { class: 'card section' },
+      h('div', { style: { fontWeight: 700 } }, '☁ Connect the shared leaderboard'),
+      h('div', { class: 'hint tiny', style: { margin: '4px 0 8px' } }, 'One-time setup so you + Will share one live roster + leaderboard across devices. Follow SUPABASE_SETUP.md, then paste your two values.'),
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '440px' } }, url, key, h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: connect }, 'Connect'), msg)));
+  }
+  return h('div', { class: 'card section', style: { borderColor: 'var(--good)' } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
+      h('div', {}, h('b', {}, '☁ Connected'), h('div', { class: 'hint tiny' }, 'Roster + leaderboard are shared live across devices.')),
+      h('div', { class: 'row', style: { gap: '6px' } },
+        h('button', { class: 'btn small ghost', onclick: async () => { await syncToCloud(r); draw(); } }, '↑ Sync roster'),
+        h('button', { class: 'btn small ghost', onclick: () => { if (confirm('Disconnect this device from the shared leaderboard?')) { setCloudConfig('', ''); draw(); } } }, 'Disconnect'))));
+}
+
+async function syncToCloud(r) {
+  if (!cloudEnabled()) return;
+  for (const s of r.students) {
+    const key = s.u.toLowerCase();
+    const L = (r.ladder || {})[key];
+    try { await upsertStudent({ username: s.u, name: s.name || s.u, group_id: s.g || 'ms', coach: r.coach, ladder_rating: L ? L.r : null, chesscom_rating: CS.forms[key]?.rating ?? null }); } catch { /* keep going */ }
+  }
+}
+
+const GROUP_LABEL = { ms: 'Middle School', hs: 'High School', teacher: 'Teachers' };
+function cloudLeaderboard() {
+  const wrap = h('div', { class: 'section', id: 'cloud-lb' }, h('h2', {}, '🏆 Live leaderboard'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
+  fetchStudents().then((rows) => { if (document.getElementById('cloud-lb') === wrap) { clear(wrap).append(h('h2', {}, '🏆 Live leaderboard'), leaderboardTable(rows || [])); } })
+    .catch((e) => { if (document.getElementById('cloud-lb') === wrap) clear(wrap).append(h('h2', {}, '🏆 Live leaderboard'), h('div', { class: 'hint tiny' }, 'Could not load: ' + e.message.slice(0, 70))); });
+  return wrap;
+}
+function leaderboardTable(rows) {
+  const flt = CS.lbFilter || 'all';
+  const filtered = rows.filter((x) => flt === 'all' || (x.group_id || 'ms') === flt).filter((x) => x.ladder_rating != null).sort((a, b) => b.ladder_rating - a.ladder_rating);
+  const chip = (id, label) => h('button', { class: 'chip' + (flt === id ? ' active-chip' : ''), onclick: () => { CS.lbFilter = id; draw(); } }, label);
+  return h('div', {},
+    h('div', { class: 'chip-row', style: { marginBottom: '8px' } }, chip('all', 'Everyone'), chip('ms', 'Middle School'), chip('hs', 'High School'), chip('teacher', 'Teachers')),
+    filtered.length ? h('div', { class: 'card' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, 'Player'), h('th', {}, 'Group'), h('th', {}, 'Ladder'), h('th', {}, 'Chess.com'))),
+      h('tbody', {}, ...filtered.slice(0, 50).map((x, i) => h('tr', {},
+        h('td', {}, h('b', {}, i + 1)),
+        h('td', {}, x.name || x.username),
+        h('td', { class: 'hint tiny' }, GROUP_LABEL[x.group_id] || x.group_id || '—'),
+        h('td', {}, h('b', { style: { fontFamily: 'var(--mono)' } }, x.ladder_rating)),
+        h('td', { class: 'hint tiny' }, x.chesscom_rating ?? '—'))))))
+      : h('div', { class: 'hint tiny' }, 'No ranked players yet — run "Update class" so ladder ratings sync up.'));
+}
 
 // ---- portable links (the roster lives inside the link — no server) ----
 const appBase = () => location.origin + location.pathname;
@@ -48,11 +107,13 @@ function draw() {
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
       h('h1', {}, 'Class'),
       h('div', { class: 'hint tiny' }, `${r.students.length} students`)),
+    cloudPanel(r),
     saveBar(r),
     addStudents(r),
     r.students.length ? rosterTable(r) : h('div', { class: 'empty section' }, 'Add students above. Each gets a personal link you can text or hand out — no logins.'),
     r.students.length ? ladderSection(r) : null,
     r.students.length ? improvedSection(r) : null,
+    cloudEnabled() ? cloudLeaderboard() : null,
   );
 }
 
