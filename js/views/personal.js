@@ -175,17 +175,23 @@ async function drawReport() {
     persistFocus(analyses, today);
     recordSnapshot(S.username, { rating: myGames[0]?.userRating || I.ratingAvg, acc: I.accAvg, dims });
     startBanking(allMine); // bank the rest of the games deeply, in the background
-    area.append(nextStepsCard(), reportCard(allMine));
-    renderBadges(area, badgeData(myGames, eloPoints));
-    renderCleanReport(area, {
-      rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
-      record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
-      eloPoints, focus: focusAreas(dims),
-      onTrain: () => window.open('https://aimchess.com', '_blank'),
-      onGo: (f) => { if (f.dest === 'openings') CTX.navigate('openings'); else window.open('https://aimchess.com', '_blank'); },
-    });
-    area.append(progressCard(S.username));
-    area.append(gamesDetails(), breakdownDetails(analyses, myGames));
+    if (store.get('profile.role') === 'student') {
+      // STUDENTS get the gist + clear actions, not the deep analytics.
+      renderStudentReport(area, { record, last10: last10rec, dims, I, myGames, eloPoints, scope, scopeName });
+    } else {
+      // COACHES (and the owner) get the full report.
+      area.append(nextStepsCard(), reportCard(allMine));
+      renderBadges(area, badgeData(myGames, eloPoints));
+      renderCleanReport(area, {
+        rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
+        record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
+        eloPoints, focus: focusAreas(dims),
+        onTrain: () => window.open('https://aimchess.com', '_blank'),
+        onGo: (f) => { if (f.dest === 'openings') CTX.navigate('openings'); else window.open('https://aimchess.com', '_blank'); },
+      });
+      area.append(progressCard(S.username));
+      area.append(gamesDetails(), breakdownDetails(analyses, myGames));
+    }
     // First-run reveal: the 60-second "your chess, decoded" intro, once.
     if (!store.get('profile.introSeen')) {
       const { superpower, weakness } = superAndWeak(dims);
@@ -299,6 +305,49 @@ function progressCard(username) {
     chart ? h('div', { class: 'hint tiny', style: { margin: '4px 0 8px' } }, 'Accuracy across analyzed sessions.') : null,
     deltaRows.length ? h('div', {}, ...deltaRows.map(([k, v]) => h('div', { class: 'row', style: { justifyContent: 'space-between', fontSize: '13px', padding: '3px 0' } },
       h('span', {}, dimName(k)), h('b', { style: { color: v >= 0 ? 'var(--good)' : 'var(--bad)', fontFamily: 'var(--mono)' } }, (v >= 0 ? '+' : '') + v)))) : null);
+}
+
+// STUDENT view: the gist + 3 clear, actionable steps (train elsewhere), review, progress —
+// none of the deep analytics the coach sees.
+function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints, scope, scopeName }) {
+  const focus = focusAreas(dims);
+  const name = store.get('profile.ownerName', '') || 'there';
+  area.append(h('div', { class: 'card section' },
+    h('div', { style: { fontSize: '19px', fontWeight: 800 } }, `Hey ${name} 👋`),
+    h('div', { class: 'hint' }, `You're rated ${myGames[0]?.userRating ?? '—'}. Recent form: ${last10.w}-${last10.l}-${last10.d}. Here's your plan.`)));
+  area.append(instantSnapshot(record, last10, myGames[0]?.userRating, scope === 'all' ? null : scopeName));
+  renderRatingHistory(area, eloPoints, scope === 'all' ? null : scopeName);
+  area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2)' } },
+    h('h2', {}, '🎯 Your 3 things to work on'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '8px' } }, 'Start at the top. A little each day beats a lot once in a while.'),
+    ...focus.slice(0, 3).map((f, i) => studentActionRow(f, i, I))));
+  area.append(h('div', { class: 'card section' },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' } },
+      h('div', {}, h('b', {}, '🎬 Review your games'), h('div', { class: 'hint tiny' }, 'Play back your recent games and see what happened.')),
+      h('button', { class: 'btn', onclick: () => { const g = document.getElementById('games-section'); if (g) g.scrollIntoView({ behavior: 'smooth' }); } }, 'Review →'))));
+  const pd = progressDelta(S.username, 30);
+  if (pd && pd.mostImproved && pd.mostImproved.delta > 0) {
+    area.append(h('div', { class: 'card section', style: { background: 'rgba(125,211,95,.06)' } },
+      h('b', {}, '📈 You\'re improving!'),
+      h('div', { class: 'hint' }, `Your ${dimName(pd.mostImproved.key)} is up +${pd.mostImproved.delta} lately${pd.ratingDelta != null ? `, and your rating ${pd.ratingDelta >= 0 ? '+' : ''}${pd.ratingDelta}` : ''}. Keep it going!`)));
+  }
+  renderBadges(area, badgeData(myGames, eloPoints));
+  area.append(gamesDetails());
+}
+
+function studentActionRow(f, i, I) {
+  const isOpening = f.dest === 'openings';
+  let why = f.why;
+  if (isOpening && I && I.openings) {
+    const weak = I.openings.filter((o) => o.games >= 2 && o.acc != null && o.name !== 'Unknown').sort((a, b) => a.scorePct - b.scorePct)[0];
+    if (weak) why = `You score low in the ${weak.name} (${weak.scorePct}%). Learn its plans and you'll win more of those.`;
+  }
+  const url = isOpening ? 'https://listudy.org/en/studies' : 'https://aimchess.com';
+  const label = isOpening ? 'Study on Listudy ↗' : 'Drill on Aimchess ↗';
+  return h('div', { class: 'focus-row' },
+    h('div', { class: 'focus-icon' }, f.icon),
+    h('div', { style: { minWidth: 0 } }, h('b', {}, `${i + 1}. ${f.label}`), h('div', { class: 'hint', style: { fontSize: '13px' } }, why)),
+    h('a', { class: 'btn small' + (i === 0 ? '' : ' ghost'), href: url, target: '_blank', rel: 'noopener', style: { alignSelf: 'center', whiteSpace: 'nowrap' } }, label));
 }
 
 function badgeData(myGames, eloPoints) {
