@@ -259,7 +259,8 @@ function addStudents(r) {
       have.add(u.toLowerCase());
       r.students.push({ name, u, g: CS.group });
     }
-    saveRoster(r); pushToCloud(r); CS.lbRows = null; draw();
+    // Auto-pull each player's recent games so ratings/form/ladder populate the moment they're added.
+    saveRoster(r); pushToCloud(r); CS.lbRows = null; CS.showManage = false; updateClass(r);
   };
   return h('div', {},
     ta,
@@ -296,7 +297,7 @@ async function updateClass(r) {
   for (const s of r.students) {
     const key = s.u.toLowerCase();
     try {
-      const games = await cc.fetchRecentGames(s.u, { months: 2, timeClass: 'all', limit: 40 });
+      const games = await cc.fetchRecentGames(s.u, { months: 4, timeClass: 'all', limit: 100 });
       gamesByUser[key] = games;
       const tcg = games.filter((g) => g.timeClass === useTc);
       const form = { w: 0, l: 0, d: 0 };
