@@ -105,7 +105,8 @@ const viewEl = document.getElementById('view');
 const ctx = { store, engineHandle, ensureEngine, showEngineStatus, navigate: (r) => (location.hash = '#/' + r) };
 
 function renderNav(route) {
-  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.route === route));
+  const navRoute = route === 'mates' ? 'train' : route; // Mates lives under the Puzzles tab
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.route === navRoute));
 }
 let _current = null;
 function rerender() { if (_current) draw(_current); }

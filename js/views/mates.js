@@ -30,7 +30,8 @@ function draw() {
 function renderList() {
   const tab = (id, label) => h('button', { class: 'btn small' + (M.mode === id ? '' : ' ghost'), onclick: () => { M.mode = id; if (id === 'identify') { M.solved = 0; startIdentify(); } else draw(); } }, label);
   host.append(
-    h('h1', {}, '♛ Advanced Mates'),
+    h('button', { class: 'btn ghost small', onclick: () => CTX.navigate('train') }, '← Puzzles'),
+    h('h1', { style: { marginTop: '6px' } }, '♛ Advanced Mates'),
     h('p', { class: 'hint' }, 'The classic checkmating patterns every strong player knows on sight. Pick one to see it and practice it, or test yourself in Identify mode.'),
     h('div', { class: 'row', style: { gap: '8px', margin: '6px 0 14px' } }, tab('learn', '📖 Learn & Practice'), tab('identify', '🎯 Identify')),
     h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(230px,1fr))', gap: '12px' } },
