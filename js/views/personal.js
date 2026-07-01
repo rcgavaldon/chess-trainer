@@ -170,14 +170,14 @@ async function drawReport() {
     const today = dailyPlan(dims, I, I.openings);
     const narr = narratives(dims, accDelta);
     persistFocus(analyses, today);
-    area.append(startCTA());
+    area.append(nextStepsCard());
     renderBadges(area, badgeData(myGames, eloPoints));
     renderCleanReport(area, {
       rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
       record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
       eloPoints, focus: focusAreas(dims),
-      onTrain: () => CTX.navigate('train'),
-      onGo: (f) => CTX.navigate(f.dest === 'openings' ? 'openings' : 'train'),
+      onTrain: () => window.open('https://aimchess.com', '_blank'),
+      onGo: (f) => { if (f.dest === 'openings') CTX.navigate('openings'); else window.open('https://aimchess.com', '_blank'); },
     });
     area.append(gamesDetails(), breakdownDetails(analyses, myGames));
     // First-run reveal: the 60-second "your chess, decoded" intro, once.
@@ -197,7 +197,7 @@ async function drawReport() {
   } else if (myGames.length) {
     // INSTANT value (no analysis needed) so a first-timer sees something in <2s, then the
     // coaching insights build in the background instead of blocking on a 90s spinner.
-    area.append(startCTA());
+    area.append(nextStepsCard());
     renderBadges(area, badgeData(myGames, eloPoints));
     area.append(instantSnapshot(record, last10rec, myGames[0]?.userRating, scope === 'all' ? null : scopeName));
     renderRatingHistory(area, eloPoints, scope === 'all' ? null : scopeName);
@@ -217,19 +217,19 @@ async function drawReport() {
   }
 }
 
-// A friendly, action-first card: the daily training + the streak. The first thing a student sees.
-function startCTA() {
-  const streak = store.get('train.streak', { count: 0 });
-  const plan = store.get('train.plan', null);
+// Next steps: review your games (the free game review) + where to actually train (Aimchess)
+// + study your openings. We're the analysis + review layer; training happens elsewhere.
+function nextStepsCard() {
   return h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.22)' } },
-    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' } },
-      h('div', { style: { minWidth: 0 } },
-        h('div', { style: { fontWeight: 800, fontSize: '17px' } }, '🎯 Today\'s training'),
-        h('div', { class: 'hint tiny' }, plan && plan.focus ? `Built for you — focus on ${String(plan.focus).toLowerCase()}. About 10 minutes.` : 'Puzzles built from your own weak spots. About 10 minutes.')),
-      h('div', { class: 'row', style: { gap: '14px', alignItems: 'center' } },
-        (streak.count ? h('div', { style: { textAlign: 'center' } }, h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '20px' } }, '🔥 ' + streak.count), h('div', { class: 'hint tiny' }, 'day streak')) : null),
-        h('button', { class: 'btn', onclick: () => CTX.navigate('train') }, 'Start →'))),
-    h('div', { class: 'hint tiny', style: { marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '8px' } }, '♟ Coach\'s rule: aim for ~3 focused games today — and if you lose 2 in a row, call it a day. Tilt costs more rating than any opening.'));
+    h('div', { style: { fontWeight: 800, fontSize: '17px', marginBottom: '10px' } }, '📋 Your next steps'),
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' } },
+      h('div', { style: { minWidth: 0 } }, h('b', {}, '🎬 Review your games'), h('div', { class: 'hint tiny' }, 'Play back what you actually played and see exactly where it turned.')),
+      h('button', { class: 'btn', onclick: () => { const g = document.getElementById('games-section'); if (g) g.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 'Review →')),
+    h('div', { class: 'hint tiny', style: { fontWeight: 600, margin: '12px 0 6px', borderTop: '1px solid var(--line)', paddingTop: '10px' } }, 'To actually drill your weak spots, we point you to the best tools:'),
+    h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } },
+      h('a', { class: 'btn ghost small', href: 'https://aimchess.com', target: '_blank', rel: 'noopener' }, '↗ Train tactics on Aimchess'),
+      h('button', { class: 'btn ghost small', onclick: () => CTX.navigate('openings') }, '📖 Study your openings')),
+    h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, '♟ Coach\'s rule: ~3 focused games a day, and if you lose 2 in a row, call it a day — tilt costs more rating than any opening.'));
 }
 
 function badgeData(myGames, eloPoints) {
@@ -303,9 +303,10 @@ function persistFocus(analyses, today) {
 }
 
 function gamesDetails() {
-  const d = h('details', { class: 'more' }, h('summary', {}, `Review a game (${S.games.length})`));
-  d.addEventListener('toggle', () => { if (d.open && !d._rendered) { d._rendered = true; d.append(gameListEl()); } });
-  return d;
+  return h('div', { id: 'games-section', class: 'card section' },
+    h('h2', {}, '🎬 Review your games'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '10px' } }, 'Click any game to play it back move by move — accuracy, the key moments, and exactly where it turned. This is your free game review.'),
+    gameListEl());
 }
 
 function breakdownDetails(analyses, myGames) {
@@ -456,9 +457,8 @@ async function doImport() {
 
 function gameListEl() {
   const wrap = h('div', {});
-  wrap.append(h('h2', {}, `Recent games`));
   const list = h('div', { class: 'game-list' });
-  for (const g of S.games) {
+  for (const g of S.games.slice(0, 25)) {
     const a = S.analyses[g.url];
     const acc = a ? a.accuracy[g.userColor] : null;
     list.append(h('div', { class: 'game-row', onclick: () => openReview(g) },
