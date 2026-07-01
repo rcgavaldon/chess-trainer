@@ -81,13 +81,13 @@ function currentAnalyses() {
 function drawHome() {
   clear(host);
   const owner = store.get('profile.ownerName', '');
-  host.append(
+  host.append(...[
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
       h('h1', {}, owner ? `${owner}'s coach` : 'Your coach'),
       S.games.length ? h('div', { class: 'hint tiny' }, `Last ${S.games.length} games · `, h('a', { href: 'javascript:void 0', onclick: () => reSync() }, 'refresh')) : null),
     store.get('profile.welcomeSeen') ? null : welcomeCard(),
     h('div', { id: 'report-area', class: 'section' }),
-  );
+  ].filter(Boolean));
   const area = document.getElementById('report-area');
   if (!S.username) { area.append(usernamePrompt()); return; }
   if (S.games.length) drawReport();
@@ -358,7 +358,7 @@ function studentLeaderboardCard() {
       h('div', {}, ...ranked.slice(0, 20).map((x, i) => {
         const mine = (x.username || '').toLowerCase() === me;
         return h('div', { class: 'row', style: { justifyContent: 'space-between', padding: '7px 10px', borderTop: i ? '1px solid var(--line)' : 'none', background: mine ? 'rgba(125,211,95,.12)' : 'transparent', borderRadius: mine ? '6px' : '0' } },
-          h('div', {}, h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)', marginRight: '10px' } }, i + 1), (x.name || x.username), mine ? h('span', { style: { color: 'var(--accent-2)', fontWeight: 700 } }, ' ← you') : null),
+          h('div', {}, h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)', marginRight: '10px' } }, i + 1), (x.name || x.username || 'Player'), mine ? h('span', { style: { color: 'var(--accent-2)', fontWeight: 700 } }, ' ← you') : null),
           h('b', { style: { fontFamily: 'var(--mono)' } }, x.ladder_rating));
       })));
   }).catch(() => { if (document.getElementById('stu-lb')) clear(wrap).append(h('h2', {}, '🏆 Class leaderboard'), h('div', { class: 'hint tiny' }, 'Leaderboard unavailable right now.')); });

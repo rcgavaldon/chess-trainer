@@ -56,6 +56,13 @@ function normalizeStudent(s) {
 export const publishPuzzleRating = (username, rating) =>
   rest('students?on_conflict=username', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [{ username: (username || '').toLowerCase(), puzzle_rating: Math.round(rating) }] }).catch(() => {});
 
+// ---- puzzle attempt log (every puzzle done by everyone; coaches review the misses) ----
+// Requires table puzzle_attempts (see supabase_schema.sql). Best-effort — swallows errors so a
+// missing table or offline never interrupts training.
+export const logAttempt = (row) => rest('puzzle_attempts', { method: 'POST', prefer: 'return=minimal', body: [row] }).catch(() => {});
+export const fetchMissed = (username, limit = 30) => rest(`puzzle_attempts?select=*&username=eq.${encodeURIComponent((username || '').toLowerCase())}&solved=eq.false&order=ts.desc&limit=${limit}`).catch(() => []);
+export const fetchAttemptCounts = (username) => rest(`puzzle_attempts?select=solved&username=eq.${encodeURIComponent((username || '').toLowerCase())}`).catch(() => []);
+
 // ---- progress snapshots (shared so coaches see trends across devices) ----
 export const upsertSnapshot = (snap) => rest('snapshots?on_conflict=username,d', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [snap] });
 export const fetchSnapshots = (username) => rest(`snapshots?select=*&username=eq.${encodeURIComponent(username.toLowerCase())}&order=d.asc`);

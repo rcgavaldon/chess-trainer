@@ -8,16 +8,22 @@ import * as cc from '../chesscom.js';
 import * as personal from './personal.js';
 import { ingestLadder } from '../ladder.js';
 import { tiltSignals } from '../tilt.js';
-import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots } from '../cloud.js';
+import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots, fetchMissed } from '../cloud.js';
 import { focusAreas } from '../report.js';
+import { Chess } from 'chess.js';
+import { mountPuzzle } from '../puzzleplay.js';
+import { themeLabel } from '../puzzlemeta.js';
 
-const CS = { forms: {}, tilt: {}, group: 'ms', updating: false, lbRows: null, lbFilter: 'all', expanded: null, showManage: false };
+const CS = { forms: {}, tilt: {}, group: 'ms', updating: false, lbRows: null, lbFilter: 'all', expanded: null, showManage: false, review: null };
 let CTX = null, host = null;
 
 const GROUPS = [{ id: 'ms', label: 'Middle School' }, { id: 'hs', label: 'High School' }];
 const GROUP_LABEL = { ms: 'Middle School', hs: 'High School', teacher: 'Teachers' };
+// Never render a null/empty/"null" identity — the source of stray "null null" rows.
+const clean = (s) => (s != null && String(s).trim() && String(s).trim().toLowerCase() !== 'null') ? String(s).trim() : null;
+const nameOf = (x) => clean(x && x.name) || clean(x && x.username) || clean(x && x.u) || 'Player';
 
-export function render(container, ctx) { CTX = ctx; host = container; draw(); }
+export function render(container, ctx) { CTX = ctx; host = container; CS.review = null; draw(); }
 
 function getRoster() {
   let r = store.get('class.roster', null);
@@ -28,9 +34,11 @@ function saveRoster(r) { store.set('class.roster', r); }
 
 // ============================ main view ============================
 function draw() {
+  if (CS.review) return renderMissedPuzzle();
   const r = getRoster();
   clear(host);
-  host.append(
+  // NOTE: native host.append(null) renders the literal text "null" (unlike our h()); filter first.
+  host.append(...[
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
       h('h1', {}, 'Students'),
       h('div', { class: 'row', style: { gap: '6px', alignItems: 'center' } },
@@ -40,7 +48,7 @@ function draw() {
     CS.updating ? h('div', { class: 'hint tiny', id: 'cls-progress', style: { marginTop: '4px' } }, 'Pulling each student\'s games…') : null,
     CS.showManage ? managePanel(r) : null,
     cloudEnabled() ? leaderboardSection() : h('div', { class: 'empty section' }, 'The shared leaderboard isn\'t connected on this device.'),
-  );
+  ].filter(Boolean));
 }
 
 // ============================ leaderboard (the centerpiece) ============================
@@ -85,7 +93,7 @@ function lbRow(x, i) {
     onclick: () => { CS.expanded = open ? null : u; renderLeaderboardInner(document.getElementById('lb-wrap')); },
   },
     h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i + 1),
-    h('div', {}, h('b', {}, x.name || x.username), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, GROUP_LABEL[x.group_id] || '')),
+    h('div', {}, h('b', {}, nameOf(x)), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, GROUP_LABEL[x.group_id] || '')),
     h('div', { class: 'hint tiny', style: { textAlign: 'right' } }, x.chesscom_rating != null ? `${x.chesscom_rating} cc` : ''),
     h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, x.ladder_rating)),
     h('span', { class: 'hint tiny' }, open ? '▲' : '▾'));
@@ -177,8 +185,50 @@ function renderDigest(x, d) {
       d.blackRate != null ? stat('as Black', `${d.blackRate}%`) : null),
     needBlock(d),
     h('div', { class: 'row', style: { marginTop: '10px', gap: '8px', flexWrap: 'wrap' } },
-      h('button', { class: 'btn small', onclick: stopped(() => { personal.requestImport(x.username); CTX.navigate('personal'); }) }, 'Open full report →'),
+      h('button', { class: 'btn small', onclick: stopped(() => reviewMissed(x.username, nameOf(x))) }, '🎬 Review missed puzzles'),
+      h('button', { class: 'btn ghost small', onclick: stopped(() => { personal.requestImport(x.username); CTX.navigate('personal'); }) }, 'Full report →'),
       h('button', { class: 'btn ghost small', onclick: stopped((e) => copy(studentLink({ u: x.username, name: x.name, g: x.group_id }, getRoster().coach), e.currentTarget, '✓ Link')) }, '🔗 Student link')));
+}
+
+// ============================ review a student's missed puzzles on the board ============================
+async function reviewMissed(username, dispName) {
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ` Loading ${dispName}'s missed puzzles…`));
+  const rows = await fetchMissed(username, 30);
+  if (!rows || !rows.length) {
+    clear(host).append(h('div', { class: 'empty section' }, `No missed puzzles logged for ${dispName} yet — they appear here once ${dispName} trains in the Puzzles tab.`),
+      h('div', { class: 'row', style: { justifyContent: 'center' } }, h('button', { class: 'btn ghost', onclick: draw }, '← Back to students')));
+    return;
+  }
+  CS.review = { rows, i: 0, name: dispName };
+  renderMissedPuzzle();
+}
+
+function renderMissedPuzzle() {
+  const R = CS.review, row = R.rows[R.i];
+  const p = { id: row.puzzle_id, fen: row.fen, solutionMoves: (row.moves || '').split(' ').filter(Boolean), theme: row.theme, rating: row.rating };
+  clear(host);
+  let toMove = 'White';
+  try { toMove = new Chess(p.fen).turn() === 'w' ? 'White' : 'Black'; } catch { /* bad fen */ }
+  const status = h('div', { class: 'puzzle-status' }, `${toMove} to move — ${R.name} missed this. Find the move together.`);
+  const side = h('div', { class: 'sidebar' });
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: () => { CS.review = null; draw(); } }, '← Back to students'),
+      h('div', { class: 'hint tiny' }, `${R.name}'s misses · ${R.i + 1} of ${R.rows.length} · ${themeLabel(p.theme)}`)),
+    h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, `🎬 Reviewing with ${R.name}`),
+    h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
+      h('div', { class: 'board-wrap' }, h('div', { id: 'miss-board' })), side));
+  const nextBtn = h('button', { class: 'btn', style: { marginTop: '12px' }, onclick: () => { R.i++; if (R.i >= R.rows.length) { CS.review = null; return draw(); } renderMissedPuzzle(); } }, R.i >= R.rows.length - 1 ? 'Done ✓' : 'Next miss →');
+  const ctrl = mountPuzzle(document.getElementById('miss-board'), p, {
+    allowRetry: true,
+    onWrong: () => { status.textContent = 'Not the move — try again, or reveal it.'; status.className = 'puzzle-status no'; },
+    onSolved: () => { status.textContent = '✓ That\'s the move!'; status.className = 'puzzle-status ok'; },
+  });
+  clear(side).append(status,
+    h('div', { class: 'row', style: { gap: '8px', alignItems: 'center' } },
+      h('button', { class: 'btn ghost small', onclick: () => ctrl.hint() }, '💡 Show the move'),
+      h('span', { class: 'hint tiny' }, p.rating ? `level ${p.rating}` : '')),
+    nextBtn);
 }
 
 // ============================ roster management (collapsed by default) ============================
@@ -226,7 +276,7 @@ function localRosterList(r) {
     wrap.append(h('div', { class: 'hint tiny', style: { fontWeight: 700, margin: '10px 0 4px' } }, `${g.label} (${studs.length})`));
     for (const s of studs) {
       wrap.append(h('div', { class: 'row', style: { justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--line)' } },
-        h('div', {}, h('b', {}, s.name || s.u), h('span', { class: 'hint tiny', style: { marginLeft: '8px', fontFamily: 'var(--mono)' } }, s.u)),
+        h('div', {}, h('b', {}, nameOf(s)), h('span', { class: 'hint tiny', style: { marginLeft: '8px', fontFamily: 'var(--mono)' } }, s.u || '')),
         h('div', { class: 'row', style: { gap: '4px' } },
           h('button', { class: 'btn small ghost', title: 'Copy student link', onclick: (e) => copy(studentLink(s, r.coach), e.currentTarget, '✓') }, '🔗'),
           h('button', { class: 'btn small ghost', title: 'Remove', onclick: () => { r.students = r.students.filter((x) => x !== s); saveRoster(r); pushToCloud(r); CS.lbRows = null; draw(); } }, '🗑'))));

@@ -9,6 +9,15 @@ import { mountChat } from '../chatcoach.js';
 import { MATE_PATTERNS, IDENTIFY_OPTIONS, correctIdentify, basicName } from '../checkmates.js';
 import { getPuzzleRating, updatePuzzleRating } from '../puzzlerating.js';
 import { themeLabel, themeHint, whyWrong } from '../puzzlemeta.js';
+import { cloudEnabled, logAttempt } from '../cloud.js';
+
+// Record every puzzle attempt to the shared log so coaches can review a student's misses.
+function logPuzzleAttempt(p, theme, solved) {
+  if (!cloudEnabled()) return;
+  const u = store.get('profile.username', '');
+  if (!u) return;
+  logAttempt({ username: u.toLowerCase(), puzzle_id: p.id || null, fen: p.fen, moves: (p.solutionMoves || []).join(' '), theme: theme || null, solved: !!solved, rating: p.rating || null });
+}
 
 const TR = { _timer: null };
 let CTX = null, host = null;
@@ -502,6 +511,7 @@ function drillPuzzle() {
     DR.attempts++; if (solved) DR.solved++;
     const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} }); recordAttempt(srs, p, { solved }); store.set('puzzles.srs', srs);
     ratingDelta = updatePuzzleRating(p.rating || 1500, solved);
+    logPuzzleAttempt(p, theme, solved);
     const b = document.getElementById('pz-rating'); if (b) b.textContent = `⚡ ${getPuzzleRating()}`;
   };
   const progressLabel = DR.endless ? `${DR.label} · ${DR.solved}/${DR.attempts} solved` : `${DR.label} · ${DR.i + 1} of ${DR.list.length}`;
