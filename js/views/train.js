@@ -138,7 +138,15 @@ async function startThemePuzzles(themes) {
   if (!list || !list.length) { clear(host).append(h('div', { class: 'empty' }, 'No puzzles for that selection right now.'), h('button', { class: 'btn ghost', onclick: renderThemePicker }, '← Back')); return; }
   markSeen(list);
   const label = themes.length === 1 ? (THEME_CHOICES.find((c) => c.t === themes[0])?.l || 'Puzzles') : `${themes.length} themes`;
-  DR.list = list; DR.i = 0; DR.theme = themes.join(','); DR.label = label; DR.onDone = renderThemePicker; DR.endless = false; DR.solved = 0; DR.attempts = 0;
+  // Endless: keep pulling fresh puzzles of the chosen themes so it never stops at a small count.
+  DR.list = list; DR.i = 0; DR.theme = themes.join(','); DR.label = label; DR.onDone = renderThemePicker; DR.endless = true; DR.solved = 0; DR.attempts = 0;
+  DR.refill = async () => {
+    const more = themes.length === 1
+      ? await loadThemeShard(themes[0], { count: 15, targetRating: base, exclude: seenSet() }).catch(() => null)
+      : await loadMixedBatch(themes, { count: 15, srs, exclude: seenSet() }).catch(() => null);
+    if (!more || !more.length) return renderThemePicker();
+    markSeen(more); DR.list = more; DR.i = 0; drillPuzzle();
+  };
   drillPuzzle();
 }
 
@@ -383,7 +391,7 @@ async function startDaily() {
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Building your daily set…'));
   const set = await buildDailySet();
   if (!set.length) { clear(host).append(h('div', { class: 'empty' }, 'Could not build a set right now.'), h('button', { class: 'btn ghost', onclick: drawHome }, '← Back')); return; }
-  DR.list = set; DR.i = 0; DR.theme = 'daily'; DR.label = 'Daily training'; DR.onDone = markDailyComplete; DR.endless = false; DR.solved = 0; DR.attempts = 0;
+  DR.list = set; DR.i = 0; DR.theme = 'daily'; DR.label = 'Daily training'; DR.onDone = markDailyComplete; DR.endless = false; DR.solved = 0; DR.attempts = 0; DR.refill = null;
   drillPuzzle();
 }
 
@@ -405,7 +413,7 @@ function markDailyComplete() {
 }
 
 // ---------------- focused drill / endless practice ----------------
-const DR = { list: [], i: 0, theme: '', label: '', onDone: null, endless: false, solved: 0, attempts: 0 };
+const DR = { list: [], i: 0, theme: '', label: '', onDone: null, endless: false, solved: 0, attempts: 0, refill: null };
 
 async function startDrill(theme, label) {
   stopTimer();
@@ -434,7 +442,7 @@ async function startEndless() {
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading puzzles…'));
   const list = await buildEndlessBatch();
   if (!list.length) { clear(host).append(h('div', { class: 'empty' }, 'Puzzles unavailable right now.'), h('button', { class: 'btn ghost', onclick: drawHome }, '← Back')); return; }
-  DR.list = list; DR.i = 0; DR.theme = 'endless'; DR.label = 'Endless practice'; DR.onDone = null; DR.endless = true; DR.solved = 0; DR.attempts = 0;
+  DR.list = list; DR.i = 0; DR.theme = 'endless'; DR.label = 'Endless practice'; DR.onDone = null; DR.endless = true; DR.solved = 0; DR.attempts = 0; DR.refill = null;
   drillPuzzle();
 }
 
@@ -451,7 +459,7 @@ function drillPuzzle() {
   let recorded = false;
   clear(host);
   const status = h('div', { class: 'puzzle-status' }, 'Your move — find the best continuation.');
-  const nextBtn = h('button', { class: 'btn small', disabled: true, onclick: () => { DR.i++; if (DR.i >= DR.list.length) { if (DR.endless) return endlessRefill(); return (DR.onDone || drawHome)(); } drillPuzzle(); } }, 'Next →');
+  const nextBtn = h('button', { class: 'btn small', disabled: true, onclick: () => { DR.i++; if (DR.i >= DR.list.length) { if (DR.endless) return (DR.refill || endlessRefill)(); return (DR.onDone || drawHome)(); } drillPuzzle(); } }, 'Next →');
   const record = (solved) => { if (recorded) return; recorded = true; DR.attempts++; if (solved) DR.solved++; const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} }); recordAttempt(srs, p, { solved }); store.set('puzzles.srs', srs); };
   const progressLabel = DR.endless ? `${DR.label} · ${DR.solved}/${DR.attempts} solved` : `${DR.label} · ${DR.i + 1} of ${DR.list.length}`;
   host.append(

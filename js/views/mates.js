@@ -8,7 +8,7 @@ import { mountPuzzle } from '../puzzleplay.js';
 import { createBoard, showArrow } from '../board.js';
 import { ADVANCED_MATES, mateByKey } from '../checkmates.js';
 
-const M = { mode: 'learn', pattern: null, puzzles: null, idx: 0, phase: 'demo', idList: null, idIdx: 0 };
+const M = { mode: 'learn', pattern: null, puzzles: null, idx: 0, phase: 'demo', idList: null, idIdx: 0, solved: 0, seen: new Set() };
 let CTX = null, host = null, timer = null;
 
 export function render(container, ctx) {
@@ -28,7 +28,7 @@ function draw() {
 
 // -------- landing: mode toggle + grid of all named mates --------
 function renderList() {
-  const tab = (id, label) => h('button', { class: 'btn small' + (M.mode === id ? '' : ' ghost'), onclick: () => { M.mode = id; if (id === 'identify') startIdentify(); else draw(); } }, label);
+  const tab = (id, label) => h('button', { class: 'btn small' + (M.mode === id ? '' : ' ghost'), onclick: () => { M.mode = id; if (id === 'identify') { M.solved = 0; startIdentify(); } else draw(); } }, label);
   host.append(
     h('h1', {}, '♛ Advanced Mates'),
     h('p', { class: 'hint' }, 'The classic checkmating patterns every strong player knows on sight. Pick one to see it and practice it, or test yourself in Identify mode.'),
@@ -41,11 +41,24 @@ function renderList() {
 
 // -------- Learn & Practice: load puzzles, DEMO the first, then practice the rest --------
 async function startPattern(m) {
-  M.pattern = m; M.puzzles = null; M.idx = 1; M.phase = 'demo';
+  M.pattern = m; M.puzzles = null; M.idx = 1; M.phase = 'demo'; M.solved = 0; M.seen = new Set();
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ` Loading ${m.name}…`));
   const pz = await loadThemeShard(m.key, { count: 9 }).catch(() => null);
   if (!pz || !pz.length) { clear(host).append(h('div', { class: 'empty' }, 'Couldn\'t load this pattern right now.'), h('button', { class: 'btn ghost', onclick: () => { M.pattern = null; draw(); } }, '← Back')); return; }
+  pz.forEach((p) => M.seen.add(p.id));
   M.puzzles = pz; draw();
+}
+
+// Endless practice: when the current batch runs out, pull a fresh one (never-seen first) and
+// keep going — there are ~120 of each pattern, so it should never feel like it "ran out."
+async function refillPractice() {
+  const m = M.pattern;
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading more…'));
+  let more = await loadThemeShard(m.key, { count: 8, exclude: M.seen }).catch(() => null);
+  if (!more || !more.length) { M.seen = new Set(); more = await loadThemeShard(m.key, { count: 8 }).catch(() => null); } // seen them all — recycle
+  if (!more || !more.length) return finishPattern();
+  more.forEach((p) => M.seen.add(p.id));
+  M.puzzles = [M.puzzles[0], ...more]; M.idx = 1; renderPractice();
 }
 
 function renderDemo() {
@@ -86,7 +99,7 @@ function renderDemo() {
 
 function renderPractice() {
   const p = M.puzzles[M.idx], m = M.pattern;
-  if (!p) return finishPattern();
+  if (!p) return refillPractice();
   clear(host);
   const chess = new Chess(p.fen);
   const toMove = chess.turn() === 'w' ? 'White' : 'Black';
@@ -96,7 +109,7 @@ function renderPractice() {
   host.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between' } },
       h('button', { class: 'btn ghost small', onclick: () => { M.pattern = null; draw(); } }, '← All mates'),
-      h('div', { class: 'hint tiny' }, `${m.name} · practice ${M.idx} of ${M.puzzles.length - 1}`)),
+      h('div', { class: 'hint tiny' }, `${m.name} · ✓ ${M.solved} solved`)),
     h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, `${m.icon} ${m.name}`),
     h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
       h('div', { class: 'board-wrap' }, h('div', { id: 'mate-practice-board' })), side));
@@ -104,10 +117,13 @@ function renderPractice() {
     allowRetry: true,
     onWrong: (_p, first) => { status.textContent = first ? 'Not mate — that lets the king out. Look for the pattern.' : 'Still not mate — try the hint.'; status.className = 'puzzle-status no'; },
     onSolved: () => {
+      M.solved++;
       clear(side).append(
         h('div', { class: 'puzzle-status ok' }, `✓ ${m.name}!`),
         h('div', { class: 'explain-box', style: { fontSize: '13px', margin: '10px 0' } }, m.teach),
-        h('button', { class: 'btn', onclick: () => { M.idx++; draw(); } }, M.idx >= M.puzzles.length - 1 ? 'Done ✓' : 'Next →'));
+        h('div', { class: 'row', style: { gap: '8px' } },
+          h('button', { class: 'btn', onclick: () => { M.idx++; renderPractice(); } }, 'Next mate →'),
+          h('button', { class: 'btn ghost', onclick: finishPattern }, 'Finish')));
     },
   });
   clear(side).append(status, h('div', { class: 'row' }, h('button', { class: 'btn ghost small', onclick: () => ctrl.hint() }, '💡 Hint')));
@@ -117,7 +133,7 @@ function finishPattern() {
   const m = M.pattern;
   clear(host).append(h('div', { class: 'empty', style: { paddingTop: '40px' } },
     h('div', { style: { fontSize: '44px' } }, m.icon),
-    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `${m.name} — nailed it!`),
+    h('div', { style: { fontSize: '20px', fontWeight: 800, marginTop: '8px' } }, `${m.name} — ${M.solved} solved!`),
     h('div', { class: 'hint', style: { marginTop: '6px' } }, 'You\'ll start spotting this one in your own games now.'),
     h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px', gap: '10px' } },
       h('button', { class: 'btn', onclick: () => startPattern(m) }, '↻ Again'),
@@ -138,7 +154,7 @@ async function startIdentify() {
 function renderIdentify() {
   if (!M.idList) { startIdentify(); return; }
   const p = M.idList[M.idIdx];
-  if (!p) return finishIdentify();
+  if (!p) { startIdentify(); return; } // exhausted this set → pull a fresh one, keep going
   clear(host);
   const chess = new Chess(p.fen);
   const toMove = chess.turn() === 'w' ? 'White' : 'Black';
@@ -147,7 +163,7 @@ function renderIdentify() {
   host.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between' } },
       h('button', { class: 'btn ghost small', onclick: () => { M.mode = 'learn'; M.idList = null; draw(); } }, '← Back'),
-      h('div', { class: 'hint tiny' }, `Identify · ${M.idIdx + 1} of ${M.idList.length}`)),
+      h('div', { class: 'hint tiny' }, `Identify · ✓ ${M.solved} solved`)),
     h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, '🎯 Which mate is it?'),
     h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
       h('div', { class: 'board-wrap' }, h('div', { id: 'mate-id-board' })), side));
@@ -160,6 +176,7 @@ function renderIdentify() {
 }
 
 function askIdentify(side, p) {
+  M.solved++;
   const correct = mateByKey(p._mateKey);
   const distractors = shuffle(ADVANCED_MATES.filter((m) => m.key !== p._mateKey)).slice(0, 3);
   const opts = shuffle([correct, ...distractors]);
