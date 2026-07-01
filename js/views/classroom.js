@@ -169,6 +169,7 @@ function renderDigest(x, d) {
   return h('div', {},
     h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '14px', justifyContent: 'space-around', marginBottom: '12px' } },
       stat('Rating', d.rating ?? '—'),
+      x.puzzle_rating != null ? stat('⚡ Puzzles', x.puzzle_rating) : null,
       stat(`Last ${d.count}`, `${d.w}-${d.l}-${d.d}`),
       stat('Win rate', `${d.winRate}%`, d.winRate >= 50 ? 'var(--good)' : 'var(--warn)'),
       d.avgAcc != null ? stat('Accuracy', `${d.avgAcc}%`) : null,

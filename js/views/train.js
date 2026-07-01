@@ -84,8 +84,10 @@ function drawHome() {
     h('div', { class: 'hint', style: { flex: 1 } }, desc),
     h('button', { class: 'btn', style: { marginTop: '4px', alignSelf: 'flex-start' }, onclick: fn }, btn));
   host.append(
-    h('h1', {}, '🧩 Puzzles'),
-    h('p', { class: 'hint' }, 'Three ways to train: pick the patterns you want, learn to finish games with the classic mates, or race the clock as the difficulty ramps to your level.'),
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
+      h('h1', {}, '🧩 Puzzles'),
+      h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, fontSize: '15px' } }, `⚡ Puzzle rating ${getPuzzleRating()}`)),
+    h('p', { class: 'hint' }, 'Three ways to train: pick the patterns you want, learn to finish games with the classic mates, or race the clock as the difficulty ramps to your level. Your puzzle rating adapts as you go.'),
     h('div', { class: 'section', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: '14px' } },
       bigCard3('🧩', 'Puzzles', 'Choose exactly what you drill — all patterns, a few, or just one. Tuned to your rating.', 'Choose themes →', renderThemePicker),
       bigCard3('♛', 'Advanced Mates', 'Learn the classic named checkmates — Anastasia\'s, Boden\'s, Arabian… — see each one, practice it, then identify them.', 'Open Mates →', () => CTX.navigate('mates')),

@@ -36,3 +36,6 @@ create policy anon_all on public.students  for all using (true) with check (true
 create policy anon_all on public.snapshots for all using (true) with check (true);
 create policy anon_read on public.admins   for select using (true);
 create policy anon_write on public.admins  for all using (true) with check (true);
+
+-- adaptive puzzle rating per player (run this once if your students table predates it)
+alter table public.students add column if not exists puzzle_rating int;

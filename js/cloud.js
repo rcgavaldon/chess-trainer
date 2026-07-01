@@ -48,6 +48,14 @@ function normalizeStudent(s) {
   };
 }
 
+// ---- puzzle rating (adaptive, per player) ----
+// Merge-updates the player's roster row with their latest puzzle rating. Only affects rows that
+// already exist (roster students) — a bare {username, puzzle_rating} insert fails the NOT NULL
+// name and is swallowed, so non-roster users never create orphan rows. Requires the column:
+//   alter table public.students add column if not exists puzzle_rating int;
+export const publishPuzzleRating = (username, rating) =>
+  rest('students?on_conflict=username', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [{ username: (username || '').toLowerCase(), puzzle_rating: Math.round(rating) }] }).catch(() => {});
+
 // ---- progress snapshots (shared so coaches see trends across devices) ----
 export const upsertSnapshot = (snap) => rest('snapshots?on_conflict=username,d', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [snap] });
 export const fetchSnapshots = (username) => rest(`snapshots?select=*&username=eq.${encodeURIComponent(username.toLowerCase())}&order=d.asc`);
