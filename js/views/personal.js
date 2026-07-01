@@ -504,7 +504,8 @@ function gameListEl() {
   const list = h('div', { class: 'game-list' });
   for (const g of S.games.slice(0, 25)) {
     const a = S.analyses[g.url];
-    const acc = a ? a.accuracy[g.userColor] : null;
+    const ccAcc = g.accuracies && g.accuracies[g.userColor] != null ? Math.round(g.accuracies[g.userColor]) : null;
+    const acc = a ? a.accuracy[g.userColor] : ccAcc;
     list.append(h('div', { class: 'game-row', onclick: () => openReview(g) },
       h('div', { class: 'res ' + g.userResult }, g.userResult === 'win' ? 'Win' : g.userResult === 'loss' ? 'Loss' : 'Draw'),
       h('div', {},
@@ -566,10 +567,15 @@ function renderReview(game, analysis) {
   const evalNum = h('div', { class: 'num' });
   const evalbar = h('div', { class: 'evalbar' }, evalWhite, evalNum);
 
-  const accW = analysis.accuracy.white, accB = analysis.accuracy.black;
+  // Prefer Chess.com's own accuracy (the number students recognize) when the game was reviewed;
+  // fall back to our engine's. Our move-by-move grades add the detail Chess.com's free tier limits.
+  const cc = game.accuracies;
+  const useCC = cc && cc.white != null && cc.black != null;
+  const accW = useCC ? Math.round(cc.white) : analysis.accuracy.white;
+  const accB = useCC ? Math.round(cc.black) : analysis.accuracy.black;
   const accBar = h('div', { class: 'accbar card', style: { padding: '12px 16px' } },
     accSide('White', accW), accSide('Black', accB),
-    h('div', { class: 'hint', style: { marginLeft: 'auto' } }, `depth ${analysis.depth}`));
+    h('div', { class: 'hint', style: { marginLeft: 'auto', textAlign: 'right' } }, useCC ? 'Chess.com accuracy' : `engine accuracy · depth ${analysis.depth}`));
 
   const explainBox = h('div', { class: 'explain-box', id: 'explain' });
   const moveList = h('div', { class: 'movelist', id: 'movelist' });
