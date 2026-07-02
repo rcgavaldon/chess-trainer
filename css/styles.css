@@ -350,6 +350,8 @@ details.more > summary:hover { color: var(--text); }
   .tabs a[data-route="personal"]::before   { content: '♟️'; }
   .tabs a[data-route="openings"]::before    { content: '📖'; }
   .tabs a[data-route="train"]::before       { content: '🧩'; }
+  .tabs a[data-route="mates"]::before        { content: '♛'; }
+  .tabs a[data-route="leaderboard"]::before { content: '🏅'; }
   .tabs a[data-route="class"]::before       { content: '👥'; }
   .tabs a[data-route="tournament"]::before  { content: '🏆'; }
 
@@ -370,6 +372,11 @@ details.more > summary:hover { color: var(--text); }
 
   /* --- cards: softer + roomier --- */
   .card { border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
+  /* wide tables (e.g. the openings breakdown) scroll inside their card instead of pushing the
+     whole page wider than the screen; and cells are compacter so most fit without scrolling. */
+  th, td { padding: 9px 9px; font-size: 13px; }
+  .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .card > table { min-width: max-content; }
   .explain-box { border-radius: 16px; padding: 16px; min-height: 0; }
   .empty { padding: 40px 20px; border-radius: 18px; }
   .controls { padding: 14px; border-radius: 16px; }
