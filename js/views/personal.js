@@ -745,6 +745,12 @@ function renderReview(game, analysis) {
 
   R.ground = createBoard(boardEl, { viewOnly: true, orientation: R.orientation, coordinates: true, fen: analysis.plies[0]?.fenBefore });
   R._eval = { white: evalWhite, num: evalNum };
+  // Keep the eval bar exactly as tall as the board (the board shrinks on mobile; a fixed-height
+  // bar looked broken next to it).
+  const syncEvalHeight = () => { const bw = boardEl.closest('.board-wrap'); if (bw && evalbar) { const hpx = Math.round(bw.getBoundingClientRect().height); if (hpx > 40) evalbar.style.height = hpx + 'px'; } };
+  requestAnimationFrame(() => { syncEvalHeight(); requestAnimationFrame(syncEvalHeight); });
+  if (R._evalResize) window.removeEventListener('resize', R._evalResize);
+  R._evalResize = syncEvalHeight; window.addEventListener('resize', syncEvalHeight);
   buildMoveList(moveList, analysis);
   stepTo(0);
   attachKeys();

@@ -66,10 +66,13 @@ function leaderboardSection() {
 function renderLeaderboardInner(wrap) {
   clear(wrap);
   const flt = CS.lbFilter;
+  // Rank by our ladder rating if they've played classmates, otherwise fall back to their
+  // Chess.com rating — so a freshly-added player shows up immediately, not only after a ladder game.
+  const rateOf = (x) => (x.ladder_rating != null ? x.ladder_rating : x.chesscom_rating);
   const rows = (CS.lbRows || [])
     .filter((x) => flt === 'all' || (x.group_id || 'ms') === flt)
-    .filter((x) => x.ladder_rating != null)
-    .sort((a, b) => b.ladder_rating - a.ladder_rating);
+    .filter((x) => rateOf(x) != null)
+    .sort((a, b) => rateOf(b) - rateOf(a));
   const chip = (id, label) => h('button', {
     class: 'chip', style: flt === id ? { background: 'var(--accent)', color: '#0a1e12', fontWeight: 700, borderColor: 'var(--accent)' } : {},
     onclick: () => { CS.lbFilter = id; renderLeaderboardInner(document.getElementById('lb-wrap')); },
@@ -88,14 +91,15 @@ function renderLeaderboardInner(wrap) {
 function lbRow(x, i) {
   const u = (x.username || '').toLowerCase();
   const open = CS.expanded === u;
+  const isLadder = x.ladder_rating != null;
+  const rating = isLadder ? x.ladder_rating : x.chesscom_rating;
   const row = h('div', {
-    class: 'lb-row', style: { display: 'grid', gridTemplateColumns: '30px 1fr auto 74px 18px', gap: '10px', alignItems: 'center', padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', cursor: 'pointer', background: open ? 'var(--bg-soft)' : 'transparent' },
+    class: 'lb-row', style: { display: 'grid', gridTemplateColumns: '30px 1fr 64px 18px', gap: '10px', alignItems: 'center', padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', cursor: 'pointer', background: open ? 'var(--bg-soft)' : 'transparent' },
     onclick: () => { CS.expanded = open ? null : u; renderLeaderboardInner(document.getElementById('lb-wrap')); },
   },
     h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i + 1),
     h('div', {}, h('b', {}, nameOf(x)), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, GROUP_LABEL[x.group_id] || '')),
-    h('div', { class: 'hint tiny', style: { textAlign: 'right' } }, x.chesscom_rating != null ? `${x.chesscom_rating} cc` : ''),
-    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, x.ladder_rating)),
+    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rating ?? '—'), h('div', { class: 'hint tiny' }, isLadder ? 'ladder' : 'chess.com')),
     h('span', { class: 'hint tiny' }, open ? '▲' : '▾'));
   if (!open) return row;
   const box = h('div', { class: 'card', style: { margin: '0 14px 14px', background: 'var(--bg-soft)' } }, h('div', { class: 'row' }, h('span', { class: 'spinner' }), ` Loading ${x.name || x.username}…`));

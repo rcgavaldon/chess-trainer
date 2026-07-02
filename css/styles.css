@@ -148,8 +148,13 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .board-wrap { width: 480px; max-width: 100%; border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-lg); border: 1px solid var(--line-strong); }
 #board, .cg-wrap { width: 480px; height: 480px; max-width: 100%; }
 @media (max-width: 560px) { #board, .cg-wrap, .board-wrap { width: 90vw; height: 90vw; } }
+/* In game review the board sits in a grid next to the eval bar — make it fill its column and stay
+   square (not 90vw, which overflowed the column and looked broken on phones). */
+@media (max-width: 980px) { .review .board-wrap { width: 100%; max-width: 100%; height: auto; aspect-ratio: 1 / 1; } .review #board, .review .cg-wrap { width: 100%; height: auto; aspect-ratio: 1 / 1; } }
 
-.evalbar { width: 30px; height: 480px; background: #11161b; border-radius: 8px; position: relative; overflow: hidden; border: 1px solid var(--line); }
+/* The eval bar fills its grid column (width); its height is synced to the board in JS so it
+   never towers over the shrunken mobile board (a fixed 30×480 bar looked broken on phones). */
+.evalbar { width: 100%; height: 480px; background: #11161b; border-radius: 8px; position: relative; overflow: hidden; border: 1px solid var(--line); }
 .evalbar .white { position: absolute; bottom: 0; width: 100%; background: linear-gradient(180deg, #f4f7f5, #d9e0db); transition: height .4s cubic-bezier(.4, 0, .2, 1); }
 .evalbar .num { position: absolute; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 700;
   color: #0c1116; top: 5px; z-index: 2; font-family: var(--mono); }
