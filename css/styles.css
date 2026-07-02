@@ -378,10 +378,10 @@ details.more > summary:hover { color: var(--text); }
   .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .card > table { min-width: max-content; }
   .explain-box { border-radius: 16px; padding: 14px; min-height: 0; }
-  /* The game-review explanation fits its content (no big empty gap on short text like the start
-     position), but is capped so long explanations scroll internally instead of shoving the move
-     list around. The page-scroll jump on each click is handled separately in stepTo(). */
-  #explain { min-height: 52px; max-height: 140px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  /* The game-review explanation simply fits its content — no cap, no internal scroll (you
+     shouldn't have to scroll a short explanation). The page-scroll jump on each click is handled
+     separately in stepTo(), so a slightly different height between moves doesn't jump the page. */
+  #explain { min-height: 52px; }
   .empty { padding: 40px 20px; border-radius: 18px; }
   .controls { padding: 14px; border-radius: 16px; }
   .controls .field { flex: 1 1 100%; }
