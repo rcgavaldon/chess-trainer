@@ -11,7 +11,8 @@ let CTX = null, host = null;
 const GROUP_LABEL = { ms: 'Middle School', hs: 'High School', teacher: 'Teachers' };
 const clean = (s) => (s != null && String(s).trim() && String(s).trim().toLowerCase() !== 'null') ? String(s).trim() : null;
 const nameOf = (x) => clean(x && x.name) || clean(x && x.username) || 'Player';
-const rateOf = (x) => (x.ladder_rating != null ? x.ladder_rating : x.chesscom_rating);
+// Rank by Chess.com rating (kept fresh by the daily pull) — the number everyone recognizes.
+const rateOf = (x) => (x.chesscom_rating != null ? x.chesscom_rating : x.ladder_rating);
 
 export function render(container, ctx) {
   CTX = ctx; host = container; clear(host);
@@ -45,10 +46,8 @@ function drawTable() {
 
 function lbRow(x, i, me) {
   const mine = (x.username || '').toLowerCase() === me;
-  const isLadder = x.ladder_rating != null;
-  const rating = isLadder ? x.ladder_rating : x.chesscom_rating;
   return h('div', { style: { display: 'grid', gridTemplateColumns: '34px 1fr auto', gap: '10px', alignItems: 'center', padding: '12px 14px', borderTop: i ? '1px solid var(--line)' : 'none', background: mine ? 'rgba(125, 211, 95, .12)' : 'transparent' } },
     h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i + 1),
     h('div', {}, h('b', {}, nameOf(x)), mine ? h('span', { style: { color: 'var(--accent-2)', fontWeight: 700 } }, ' ← you') : null, h('div', { class: 'hint tiny' }, GROUP_LABEL[x.group_id] || '')),
-    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rating ?? '—'), h('div', { class: 'hint tiny' }, isLadder ? 'ladder' : 'chess.com')));
+    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rateOf(x) ?? '—'), h('div', { class: 'hint tiny' }, 'chess.com')));
 }
