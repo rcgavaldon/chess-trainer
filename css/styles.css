@@ -377,7 +377,10 @@ details.more > summary:hover { color: var(--text); }
   th, td { padding: 9px 9px; font-size: 13px; }
   .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .card > table { min-width: max-content; }
-  .explain-box { border-radius: 16px; padding: 16px; min-height: 0; }
+  .explain-box { border-radius: 16px; padding: 14px; min-height: 88px; }
+  /* The game-review explanation gets a FIXED height with internal scroll, so the panel below it
+     (move list, chat) doesn't jump every time a move's explanation is longer or shorter. */
+  #explain { height: 150px; min-height: 150px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .empty { padding: 40px 20px; border-radius: 18px; }
   .controls { padding: 14px; border-radius: 16px; }
   .controls .field { flex: 1 1 100%; }
@@ -385,7 +388,10 @@ details.more > summary:hover { color: var(--text); }
   .controls .field[style*='margin-left'] { margin-left: 0 !important; }
 
   /* --- board near full width --- */
-  .review { grid-template-columns: 18px 1fr; gap: 10px; }
+  /* trim the review card's padding so the board gets more of the screen (it was cramped inside a
+     padded card), and tighten the eval-bar column + gap. */
+  #review-card { padding: 10px; }
+  .review { grid-template-columns: 16px 1fr; gap: 8px; }
   .review[style], .trainer-grid { grid-template-columns: 1fr !important; grid-template-areas: none !important; }
   .trainer-board { width: 100%; max-width: 100%; margin: 0; }
   #board, .cg-wrap, .board-wrap { width: calc(100vw - 32px); height: calc(100vw - 32px); border-radius: 14px; }

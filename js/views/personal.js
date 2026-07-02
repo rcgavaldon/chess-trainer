@@ -802,10 +802,18 @@ function stepTo(ply) {
   R._eval.num.textContent = evalText(ev);
   // explanation of the move just played
   renderExplain(ply >= 1 ? a.plies[ply - 1] : null);
-  // active in move list
-  document.querySelectorAll('#movelist .ply').forEach((s) => s.classList.toggle('active', +s.dataset.ply === ply));
-  const active = document.querySelector('#movelist .ply.active');
-  if (active) active.scrollIntoView({ block: 'nearest' });
+  // active in move list — scroll ONLY the move list, never the page (scrollIntoView was jumping
+  // the whole page on every click on mobile).
+  const ml = document.getElementById('movelist');
+  if (ml) {
+    ml.querySelectorAll('.ply').forEach((s) => s.classList.toggle('active', +s.dataset.ply === ply));
+    const active = ml.querySelector('.ply.active');
+    if (active) {
+      const aTop = active.offsetTop, aBot = aTop + active.offsetHeight;
+      if (aTop < ml.scrollTop) ml.scrollTop = aTop - 8;
+      else if (aBot > ml.scrollTop + ml.clientHeight) ml.scrollTop = aBot - ml.clientHeight + 8;
+    }
+  }
   if (R._eg) R._eg.marker.style.left = (R._eg.n ? (ply / R._eg.n) * 100 : 0) + '%';
 }
 
