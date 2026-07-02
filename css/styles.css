@@ -377,10 +377,11 @@ details.more > summary:hover { color: var(--text); }
   th, td { padding: 9px 9px; font-size: 13px; }
   .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .card > table { min-width: max-content; }
-  .explain-box { border-radius: 16px; padding: 14px; min-height: 88px; }
-  /* The game-review explanation gets a FIXED height with internal scroll, so the panel below it
-     (move list, chat) doesn't jump every time a move's explanation is longer or shorter. */
-  #explain { height: 150px; min-height: 150px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .explain-box { border-radius: 16px; padding: 14px; min-height: 0; }
+  /* The game-review explanation fits its content (no big empty gap on short text like the start
+     position), but is capped so long explanations scroll internally instead of shoving the move
+     list around. The page-scroll jump on each click is handled separately in stepTo(). */
+  #explain { min-height: 52px; max-height: 140px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .empty { padding: 40px 20px; border-radius: 18px; }
   .controls { padding: 14px; border-radius: 16px; }
   .controls .field { flex: 1 1 100%; }
