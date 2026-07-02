@@ -26,9 +26,12 @@
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+/* Dark base on <html> so iOS Safari's rubber-band overscroll never flashes white, and min-height
+   (not height:100%) so the background always covers pages taller than the viewport. */
+html { margin: 0; min-height: 100%; background-color: var(--bg); }
+body { margin: 0; min-height: 100%; }
 body {
-  background: var(--bg);
+  background-color: var(--bg);
   background-image: var(--bg-grad);
   background-attachment: fixed;
   color: var(--text);
@@ -303,7 +306,9 @@ details.more > summary:hover { color: var(--text); }
    big touch targets, and type that breathes.
    ============================================================ */
 @media (max-width: 720px) {
-  body { font-size: 16px; background-attachment: scroll; }
+  /* one soft top wash instead of the two desktop blobs, and scroll (not fixed) — fixed backgrounds
+     render weirdly on iOS Safari as the toolbar shows/hides. */
+  body { font-size: 16px; background-attachment: scroll; background-image: radial-gradient(620px 300px at 72% -6%, rgba(125, 211, 95, .07), transparent 62%); }
   main { max-width: 100%; padding: 16px 16px calc(92px + env(safe-area-inset-bottom)); }
 
   /* --- top bar: pared back to brand + settings (nav lives at the bottom now) ---
