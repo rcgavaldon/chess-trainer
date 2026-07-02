@@ -7,6 +7,7 @@ import { loadThemeShard } from '../puzzles.js';
 import { mountPuzzle } from '../puzzleplay.js';
 import { createBoard, showArrow } from '../board.js';
 import { ADVANCED_MATES, mateByKey } from '../checkmates.js';
+import { getPuzzleRating } from '../puzzlerating.js';
 
 const M = { mode: 'learn', pattern: null, puzzles: null, idx: 0, phase: 'demo', idList: null, idIdx: 0, solved: 0, seen: new Set() };
 let CTX = null, host = null, timer = null;
@@ -44,7 +45,7 @@ function renderList() {
 async function startPattern(m) {
   M.pattern = m; M.puzzles = null; M.idx = 1; M.phase = 'demo'; M.solved = 0; M.seen = new Set();
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ` Loading ${m.name}…`));
-  const pz = await loadThemeShard(m.key, { count: 9 }).catch(() => null);
+  const pz = await loadThemeShard(m.key, { count: 9, targetRating: getPuzzleRating() }).catch(() => null);
   if (!pz || !pz.length) { clear(host).append(h('div', { class: 'empty' }, 'Couldn\'t load this pattern right now.'), h('button', { class: 'btn ghost', onclick: () => { M.pattern = null; draw(); } }, '← Back')); return; }
   pz.forEach((p) => M.seen.add(p.id));
   M.puzzles = pz; draw();
@@ -55,8 +56,8 @@ async function startPattern(m) {
 async function refillPractice() {
   const m = M.pattern;
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading more…'));
-  let more = await loadThemeShard(m.key, { count: 8, exclude: M.seen }).catch(() => null);
-  if (!more || !more.length) { M.seen = new Set(); more = await loadThemeShard(m.key, { count: 8 }).catch(() => null); } // seen them all — recycle
+  let more = await loadThemeShard(m.key, { count: 8, targetRating: getPuzzleRating(), exclude: M.seen }).catch(() => null);
+  if (!more || !more.length) { M.seen = new Set(); more = await loadThemeShard(m.key, { count: 8, targetRating: getPuzzleRating() }).catch(() => null); } // seen them all — recycle
   if (!more || !more.length) return finishPattern();
   more.forEach((p) => M.seen.add(p.id));
   M.puzzles = [M.puzzles[0], ...more]; M.idx = 1; renderPractice();
@@ -176,7 +177,7 @@ async function startIdentify() {
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Building an identify set…'));
   const picks = shuffle(ADVANCED_MATES.slice()).slice(0, 8);
   const list = [];
-  for (const m of picks) { try { const got = await loadThemeShard(m.key, { count: 1 }); if (got && got[0]) { got[0]._mateKey = m.key; list.push(got[0]); } } catch { /* skip */ } }
+  for (const m of picks) { try { const got = await loadThemeShard(m.key, { count: 1, targetRating: getPuzzleRating() }); if (got && got[0]) { got[0]._mateKey = m.key; list.push(got[0]); } } catch { /* skip */ } }
   if (!list.length) { clear(host).append(h('div', { class: 'empty' }, 'Couldn\'t build a set right now.'), h('button', { class: 'btn ghost', onclick: () => { M.mode = 'learn'; draw(); } }, '← Back')); return; }
   M.idList = shuffle(list); M.idIdx = 0; draw();
 }

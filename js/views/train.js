@@ -148,10 +148,12 @@ function renderThemePicker() {
 async function startThemePuzzles(themes) {
   stopTimer();
   clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading puzzles…'));
-  const base = await getBaseRating();
+  await getBaseRating(); // seed/refresh the player's peak rating in the background
   const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} });
+  // Scale difficulty to the player's adaptive PUZZLE rating (a ~1600 player gets ~1600 puzzles),
+  // read fresh each batch so it tracks them as it moves.
   const list = themes.length === 1
-    ? await loadThemeShard(themes[0], { count: 15, targetRating: base, exclude: seenSet() }).catch(() => null)
+    ? await loadThemeShard(themes[0], { count: 15, targetRating: getPuzzleRating(), exclude: seenSet() }).catch(() => null)
     : await loadMixedBatch(themes, { count: 15, srs, exclude: seenSet() }).catch(() => null);
   if (!list || !list.length) { clear(host).append(h('div', { class: 'empty' }, 'No puzzles for that selection right now.'), h('button', { class: 'btn ghost', onclick: renderThemePicker }, '← Back')); return; }
   markSeen(list);
@@ -160,7 +162,7 @@ async function startThemePuzzles(themes) {
   DR.list = list; DR.i = 0; DR.theme = themes.join(','); DR.label = label; DR.onDone = renderThemePicker; DR.endless = true; DR.solved = 0; DR.attempts = 0;
   DR.refill = async () => {
     const more = themes.length === 1
-      ? await loadThemeShard(themes[0], { count: 15, targetRating: base, exclude: seenSet() }).catch(() => null)
+      ? await loadThemeShard(themes[0], { count: 15, targetRating: getPuzzleRating(), exclude: seenSet() }).catch(() => null)
       : await loadMixedBatch(themes, { count: 15, srs, exclude: seenSet() }).catch(() => null);
     if (!more || !more.length) return renderThemePicker();
     markSeen(more); DR.list = more; DR.i = 0; drillPuzzle();
