@@ -389,8 +389,6 @@ function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints
       h('b', {}, '📈 You\'re improving!'),
       h('div', { class: 'hint' }, `Your ${dimName(pd.mostImproved.key)} is up +${pd.mostImproved.delta} lately${pd.ratingDelta != null ? `, and your rating ${pd.ratingDelta >= 0 ? '+' : ''}${pd.ratingDelta}` : ''}. Keep it going!`)));
   }
-  const lb = studentLeaderboardCard();
-  if (lb) area.append(lb);
   renderBadges(area, badgeData(myGames, eloPoints));
   area.append(gamesDetails());
 }

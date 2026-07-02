@@ -7,10 +7,11 @@ import * as openings from './views/openings.js';
 import * as train from './views/train.js';
 import * as learn from './views/learn.js';
 import * as mates from './views/mates.js';
+import * as leaderboard from './views/leaderboard.js';
 import * as classroom from './views/classroom.js';
 import * as tournament from './views/tournament.js';
 
-const views = { personal, openings, train, learn, mates, class: classroom, tournament };
+const views = { personal, openings, train, learn, mates, leaderboard, class: classroom, tournament };
 
 // ---- accent theme ----
 const ACCENTS = {
