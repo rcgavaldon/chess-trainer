@@ -217,8 +217,12 @@ async function drawReport() {
       area.append(progressCard(S.username));
       area.append(gamesDetails(), breakdownDetails(analyses, myGames));
     }
-    // First-run reveal: the 60-second "your chess, decoded" intro, once.
-    if (!store.get('profile.introSeen')) {
+    // First-run reveal: the 60-second "your chess, decoded" intro, ONCE. Guard against a re-render
+    // (banking / scope change re-calls drawReport before the intro finishes) replaying it: mark it
+    // seen immediately, plus a session flag so it can't fire twice on the same load.
+    if (!store.get('profile.introSeen') && !S._introShown) {
+      S._introShown = true;
+      store.set('profile.introSeen', true);
       const { superpower, weakness } = superAndWeak(dims);
       const fa = focusAreas(dims);
       const topFocus = fa.find((f) => f.primary) || fa[0];
@@ -229,7 +233,7 @@ async function drawReport() {
         superName: superpower && superpower.name, superBlurb: 'Your strongest area — lean on it while you shore up the rest.',
         weakName: weakness && weakness.name, weakWhy: topFocus && topFocus.why,
         focusLabel: topFocus && topFocus.label, planGame: today.game,
-      }, () => store.set('profile.introSeen', true));
+      }, () => {});
     }
   } else if (myGames.length) {
     // INSTANT value (no analysis needed) so a first-timer sees something in <2s, then the
