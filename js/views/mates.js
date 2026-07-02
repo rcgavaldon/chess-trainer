@@ -65,37 +65,66 @@ async function refillPractice() {
 function renderDemo() {
   const p = M.puzzles[0], m = M.pattern;
   clear(host);
+  // Precompute the position + last move at each step so the slider can scrub freely.
+  const positions = [{ fen: p.fen, last: null, uci: null }];
+  const c = new Chess(p.fen);
+  for (const uci of p.solutionMoves) {
+    const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+    positions.push({ fen: c.fen(), last: mv ? [mv.from, mv.to] : null, uci });
+  }
+  const N = p.solutionMoves.length;
+  const orient = new Chess(p.fen).turn() === 'w' ? 'white' : 'black';
   const boardEl = h('div', { id: 'mate-demo-board' });
   const side = h('div', { class: 'sidebar' });
   host.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between' } },
       h('button', { class: 'btn ghost small', onclick: () => { M.pattern = null; draw(); } }, '← All mates'),
-      h('div', { class: 'hint tiny' }, 'Watch the pattern')),
+      h('div', { class: 'hint tiny' }, 'Step through the pattern')),
     h('h1', { style: { marginTop: '6px', fontSize: '22px' } }, `${m.icon} ${m.name}`),
     h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
       h('div', { class: 'board-wrap' }, boardEl), side));
-  const chess = new Chess(p.fen);
-  const orient = chess.turn() === 'w' ? 'white' : 'black';
   const g = createBoard(boardEl, { viewOnly: true, fen: p.fen, orientation: orient, coordinates: true });
-  const status = h('div', { class: 'hint tiny', id: 'demo-status' }, 'Playing the mate…');
-  clear(side).append(h('div', { class: 'explain-box', style: { fontSize: '14px', marginBottom: '12px' } }, h('b', {}, 'Watch: '), m.teach), status);
-  let i = 0;
-  const step = () => {
-    if (i >= p.solutionMoves.length) {
-      status.remove();
-      side.append(
-        h('div', { class: 'puzzle-status ok', style: { marginTop: '4px' } }, `Checkmate — that's ${m.name}.`),
-        h('button', { class: 'btn', style: { marginTop: '12px' }, onclick: () => { M.phase = 'practice'; M.idx = 1; draw(); } }, 'Now you try →'),
-        h('button', { class: 'btn ghost small', style: { marginTop: '8px' }, onclick: () => draw() }, '↻ Watch again'));
-      return;
-    }
-    const uci = p.solutionMoves[i];
-    const mv = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-    if (mv) { g.set({ fen: chess.fen(), lastMove: [mv.from, mv.to] }); showArrow(g, uci, i === p.solutionMoves.length - 1 ? 'green' : 'blue'); }
-    i++;
-    timer = setTimeout(step, 950);
+  const slider = h('input', { type: 'range', min: '0', max: String(N), value: '0', step: '1', style: { width: '100%' } });
+  const stepLabel = h('div', { class: 'hint tiny', style: { fontFamily: 'var(--mono)', minWidth: '92px', textAlign: 'center' } });
+  const playBtn = h('button', { class: 'btn' }, '▶ Auto-play');
+  const doneBox = h('div', {});
+  let cur = 0, playing = false;
+  const stopPlay = () => { playing = false; if (timer) { clearTimeout(timer); timer = null; } playBtn.textContent = '▶ Auto-play'; };
+  const applyStep = (idx) => {
+    cur = Math.max(0, Math.min(N, idx));
+    const pos = positions[cur];
+    g.set({ fen: pos.fen, lastMove: pos.last || undefined });
+    if (pos.uci) showArrow(g, pos.uci, cur === N ? 'green' : 'blue'); else g.setAutoShapes([]);
+    slider.value = String(cur);
+    stepLabel.textContent = cur === 0 ? 'Start' : cur === N ? `${cur}/${N} · mate!` : `Move ${cur}/${N}`;
+    clear(doneBox);
+    if (cur === N) doneBox.append(
+      h('div', { class: 'puzzle-status ok', style: { marginTop: '8px' } }, `That's ${m.name}.`),
+      h('button', { class: 'btn', style: { marginTop: '10px' }, onclick: () => { stopPlay(); M.phase = 'practice'; M.idx = 1; draw(); } }, 'Now you try →'));
   };
-  timer = setTimeout(step, 750);
+  const play = () => {
+    if (cur >= N) applyStep(0); // restart if at the end
+    playing = true; playBtn.textContent = '⏸ Pause';
+    const tick = () => {
+      if (!playing) return;
+      if (cur >= N) { stopPlay(); return; }
+      applyStep(cur + 1);
+      timer = (cur < N) ? setTimeout(tick, 1900) : (stopPlay(), null); // 1900ms ≈ half the old speed
+    };
+    timer = setTimeout(tick, 1900);
+  };
+  playBtn.onclick = () => { playing ? stopPlay() : play(); };
+  slider.oninput = () => { stopPlay(); applyStep(+slider.value); };
+  clear(side).append(
+    h('div', { class: 'explain-box', style: { fontSize: '14px', marginBottom: '12px' } }, h('b', {}, 'Watch: '), m.teach),
+    slider,
+    h('div', { class: 'row', style: { justifyContent: 'space-between', marginTop: '8px' } },
+      h('button', { class: 'btn ghost small', onclick: () => { stopPlay(); applyStep(cur - 1); } }, '‹ Prev'),
+      stepLabel,
+      h('button', { class: 'btn ghost small', onclick: () => { stopPlay(); applyStep(cur + 1); } }, 'Next ›')),
+    h('div', { class: 'row', style: { marginTop: '10px' } }, playBtn),
+    doneBox);
+  applyStep(0);
 }
 
 function renderPractice() {
