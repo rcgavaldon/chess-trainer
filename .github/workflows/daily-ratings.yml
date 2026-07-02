@@ -1,0 +1,19 @@
+name: Daily Chess.com ratings
+
+# Pulls every student's current Chess.com rating and writes it to Supabase so the leaderboard
+# auto-updates each day — no one needs to open the app.
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC daily (~3 AM El Paso)
+  workflow_dispatch: {}    # lets you run it on demand from the Actions tab
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Pull Chess.com ratings into Supabase
+        run: node scripts/update-ratings.mjs
