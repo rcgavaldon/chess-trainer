@@ -391,6 +391,14 @@ details.more > summary:hover { color: var(--text); }
   /* trim the review card's padding so the board gets more of the screen (it was cramped inside a
      padded card), and tighten the eval-bar column + gap. */
   #review-card { padding: 10px; }
+  /* compact the header (accuracy numbers + move-quality summary) so the board sits higher and
+     isn't pushed down the screen. */
+  #review-card .accbar { gap: 12px; padding: 6px 12px !important; align-items: center; }
+  #review-card .accbar .acc { font-size: 17px; }
+  #review-card .accbar .who { font-size: 9px; margin-top: 0; }
+  #review-card .accbar .hint { font-size: 10px; }
+  #review-card .chip-row.section { margin-top: 7px; gap: 5px; }
+  #review-card .chip-row .chip { padding: 3px 8px; font-size: 11px; border-radius: 14px; }
   .review { grid-template-columns: 16px 1fr; gap: 8px; }
   .review[style], .trainer-grid { grid-template-columns: 1fr !important; grid-template-areas: none !important; }
   .trainer-board { width: 100%; max-width: 100%; margin: 0; }
