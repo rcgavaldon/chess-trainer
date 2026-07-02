@@ -266,25 +266,25 @@ function detectKingActivity(ctx) {
 // same grade never reads identically twice in a row.
 const FALLBACKS = {
   opening: {
-    good: ['Smooth opening play — you keep developing and fighting for the center, no time wasted.',
-      'A healthy developing move. In the opening the goal is simple: get your pieces out and your king safe, and this does that.',
-      'Solid. You\'re following the opening principles — pieces toward the center, ready to castle.'],
-    bad: ['A little slow for the opening — every move here should develop a new piece or grab the center.',
-      'This loosens things up early. Try to finish developing before starting an adventure.'],
+    good: ['Smooth development — pieces out, fighting for the center.',
+      'A healthy developing move — pieces out, king heading to safety.',
+      'Solid — pieces toward the center, ready to castle.'],
+    bad: ['A little slow — each opening move should develop a piece or grab the center.',
+      'A bit loose this early — finish developing first.'],
   },
   middlegame: {
-    good: ['Good middlegame move — your pieces stay coordinated and you\'re not giving your opponent any targets.',
-      'Sensible. You keep the tension and improve your position without creating a weakness.',
-      'Nice and steady — you\'re building pressure while keeping everything defended.'],
-    bad: ['There was more to squeeze out of this position — look for a move that improves your worst-placed piece.',
-      'A bit passive — the middlegame rewards finding active plans for your pieces.'],
+    good: ['Solid — pieces coordinated, no targets given.',
+      'Sensible — improves your position without a weakness.',
+      'Steady — building pressure, everything defended.'],
+    bad: ['More was available — improve your worst-placed piece.',
+      'A bit passive — look for an active plan.'],
   },
   endgame: {
-    good: ['Clean endgame technique — every tempo matters here, and you keep your edge.',
-      'Good. In the endgame, activity is king: your pieces stay busy and your pawns keep rolling.',
-      'Accurate. You hold the position together and don\'t let any counterplay in.'],
-    bad: ['Endgames are about precision — there was a more accurate path that kept more of your advantage.',
-      'Careful here — small endgame slips swing the result. A more active try was available.'],
+    good: ['Clean technique — you keep your edge.',
+      'Good — active pieces, pawns rolling.',
+      'Accurate — no counterplay allowed.'],
+    bad: ['Endgames need precision — a more accurate path was there.',
+      'Careful — a more active try was available.'],
   },
 };
 
@@ -319,50 +319,50 @@ export function explainMove(ctx) {
     if (ks) add(60, 'kingsafety', `Pushing this pawn weakens the shelter in front of your ${ks.side}-castled king.`);
     const op = openingFlags(ctx.move, ctx.history, ctx.ply);
     if (op.samePieceTwice) add(40, 'opening', `Moving the same piece twice in the opening costs development time.`);
-    if (op.earlyQueen) add(38, 'opening', `Bringing the queen out this early lets your opponent develop with tempo by attacking her.`);
+    if (op.earlyQueen) add(38, 'opening', `The queen out this early lets them gain time by attacking her.`);
   }
 
   if (!BAD.has(ctx.label)) {
     const hangsSelf = detectHanging(ctx.fenAfter, ctx.move)?.square === ctx.move.to;
-    if (ctx.move.promotion) add(97, 'promo', `Promotion! Your pawn becomes a ${NAME[ctx.move.promotion]} — a massive jump in firepower.`);
+    if (ctx.move.promotion) add(97, 'promo', `Promotion! Your pawn becomes a ${NAME[ctx.move.promotion]}.`);
     const fork = detectFork(ctx.fenAfter, ctx.move);
     if (fork && !hangsSelf) {
       const list = fork.targets.map((t) => NAME[t.piece]).join(' and ');
-      add(95, 'fork', `Beautiful fork — your ${NAME[fork.forker]} hits the ${list} at the same time, so one of them is going to fall.`);
+      add(95, 'fork', `Fork! Your ${NAME[fork.forker]} hits the ${list} at once — one will fall.`);
     }
     if (ctx.move.captured) {
       const cb = new Chess(ctx.fenBefore);
       const oppDefends = cb.isAttacked(ctx.move.to, cb.turn() === 'w' ? 'b' : 'w');
-      if (!oppDefends) add(90, 'freecap', `You grab the ${NAME[ctx.move.captured]} for free — that's clean material in the bank.`);
+      if (!oppDefends) add(90, 'freecap', `Wins the ${NAME[ctx.move.captured]} for free.`);
       else {
         const rec = detectRecapture(ctx);
-        if (rec) add(72, 'recap', `Recaptures on ${ctx.move.to} so the material stays even — no need to let your opponent get ahead.`);
-        else add(66, 'trade', `Trades on ${ctx.move.to}. Swapping pieces simplifies the game and is great when you're ahead or want a calmer position.`);
+        if (rec) add(72, 'recap', `Recaptures on ${ctx.move.to} to keep material even.`);
+        else add(66, 'trade', `Trades on ${ctx.move.to} — simplifying, which helps when you're ahead.`);
       }
     }
-    if (detectPassedPush(ctx)) add(82, 'passed', `Pushes your passed pawn closer to queening — in the endgame a runner like this can decide the game.`);
+    if (detectPassedPush(ctx)) add(82, 'passed', `Pushes your passed pawn toward queening — a runner like this can decide the endgame.`);
     const threat = detectThreat(ctx);
-    if (threat && !hangsSelf && !fork) add(80, 'threat', `This builds a real threat: next move you're ready to win the ${NAME[threat.piece]} on ${threat.square}, so your opponent has to react.`);
+    if (threat && !hangsSelf && !fork) add(80, 'threat', `Threatens to win the ${NAME[threat.piece]} on ${threat.square} next — they have to react.`);
     const esc = detectEscape(ctx);
-    if (esc) add(78, 'escape', `Good awareness — you slide your ${NAME[esc.piece]} out of danger before it can be taken.`);
+    if (esc) add(78, 'escape', `Slips your ${NAME[esc.piece]} out of danger before it can be taken.`);
     const out = detectOutpost(ctx);
-    if (out) add(70, 'outpost', `Your knight settles on a strong outpost at ${out.square} — propped up by a pawn and impossible for their pawns to chase away. A knight here is worth its weight in gold.`);
-    if (ctx.move.san && ctx.move.san.endsWith('+')) add(64, 'check', `A check — your opponent must answer it immediately, which lets you dictate what happens next.`);
-    if (ctx.move.flags && (ctx.move.flags.includes('k') || ctx.move.flags.includes('q'))) add(62, 'castle', `Castling — king tucked safely behind its pawns and a rook brought toward the center. Exactly what you want out of the opening.`);
+    if (out) add(70, 'outpost', `Your knight lands on a strong outpost at ${out.square} — pawn-defended and safe from enemy pawns.`);
+    if (ctx.move.san && ctx.move.san.endsWith('+')) add(64, 'check', `A check — they must answer it right away, so you set the pace.`);
+    if (ctx.move.flags && (ctx.move.flags.includes('k') || ctx.move.flags.includes('q'))) add(62, 'castle', `Castling — king safe behind its pawns, rook toward the center.`);
     const dev = detectDevelopment(ctx);
-    if (dev) add(54, 'dev', `Good development: your ${NAME[dev.piece]} comes off the back rank${dev.eyesCenter ? ' and points right at the center' : ''}, getting you a step closer to castling.`);
-    if (detectCenterPawn(ctx)) add(52, 'center', `Stakes a claim in the center. Owning the middle squares gives every one of your pieces more room to operate.`);
+    if (dev) add(54, 'dev', `Develops your ${NAME[dev.piece]} off the back rank${dev.eyesCenter ? ', eyeing the center' : ''}.`);
+    if (detectCenterPawn(ctx)) add(52, 'center', `Stakes a claim in the center, giving your pieces more room.`);
     const rook = detectOpenFileRook(ctx);
-    if (rook) add(50, 'rook', `Rook to the ${rook.openness === 'open' ? 'open' : 'half-open'} ${rook.file}-file. Rooks come alive on open lines — this is where they do their damage.`);
-    if (detectKingActivity(ctx)) add(48, 'kingact', `Activates your king. With so few pieces left, the king turns into a fighting piece — marching it toward the center is textbook endgame play.`);
-    if (matchedBest) add(30, 'best', `This is the engine's top pick — it keeps your pieces active and gives nothing away.`);
+    if (rook) add(50, 'rook', `Rook to the ${rook.openness === 'open' ? 'open' : 'half-open'} ${rook.file}-file, where rooks do their best work.`);
+    if (detectKingActivity(ctx)) add(48, 'kingact', `Activates your king — a real fighting piece in the endgame.`);
+    if (matchedBest) add(30, 'best', `The engine's top pick — active and gives nothing away.`);
   }
 
   if (!reasons.length) {
     const special = {
-      Brilliant: 'Brilliant! You gave up material on purpose to win something even bigger. That\'s the kind of move that wins games.',
-      Great: 'Great find — this was the one move that held everything together. Not easy to spot.',
-      Book: 'A standard opening move that strong players have trusted for years. You\'re right in theory.',
+      Brilliant: 'Brilliant! You gave up material on purpose to win something even bigger.',
+      Great: 'Great find — the one move that held everything together.',
+      Book: 'A standard book move — you\'re right in theory.',
     };
     if (special[ctx.label]) return { type: 'fallback', text: special[ctx.label], all: [] };
     const phase = phaseOf(ctx);

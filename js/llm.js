@@ -13,11 +13,10 @@ export async function commentMove({ model = DEFAULT_MODEL, fen, color, playedSan
   const ep = coachEndpoint();
   if (!ep.headers) return null;
   const system =
-    'You are a warm, encouraging chess coach. In 2-4 clear sentences, explain in plain language (simple enough for a ' +
-    'beginner but genuinely insightful) WHY this move is good or bad: what it does well or what it gives away, what ' +
-    'the stronger idea was and WHY it is better (the plan or threat behind it), and one concrete thing to watch for ' +
-    'next time. Be specific to THIS position — name the squares/pieces involved. Avoid heavy jargon; if you use a ' +
-    'term, explain it briefly. No long computer variations, no restating the FEN, no filler.';
+    'You are a warm, encouraging chess coach. In 1-2 short sentences (add a third ONLY if the position truly needs ' +
+    'it to make sense), say in plain language WHY this move is good or bad — the key idea or what it gives away, and ' +
+    'the better plan if there was one. Be specific to THIS position: name the squares/pieces. Simple enough for a ' +
+    'beginner, no jargon, no variations, no restating the FEN, no filler. Keep it tight.';
   const user =
     `Position FEN: ${fen}\n` +
     `${color} played ${playedSan}, graded "${label}"${winLoss ? ` (it dropped about ${winLoss}% win chance)` : ''}.\n` +
@@ -28,7 +27,7 @@ export async function commentMove({ model = DEFAULT_MODEL, fen, color, playedSan
   const res = await fetch(ep.url, {
     method: 'POST',
     headers: ep.headers,
-    body: JSON.stringify({ model, max_tokens: 320, temperature: 0.4, system, messages: [{ role: 'user', content: user }] }),
+    body: JSON.stringify({ model, max_tokens: 170, temperature: 0.4, system, messages: [{ role: 'user', content: user }] }),
   });
   if (res.status === 401) throw new Error('Invalid Anthropic API key');
   if (res.status === 429) throw new Error('Rate limited — wait a moment and retry');
@@ -46,8 +45,8 @@ export async function coachPlan({ model = DEFAULT_MODEL, username, insights, act
   const ep = coachEndpoint();
   if (!ep.headers) return null;
   const system =
-    'You are a chess coach writing a brief, motivating weekly study note for a student. 3-4 sentences. ' +
-    'Reference their concrete numbers, name the single most important thing to fix first, and end with one specific encouragement. No lists.';
+    'You are a chess coach writing a brief, motivating weekly study note for a student. 2 short sentences. ' +
+    'Name the single most important thing to fix first (tie it to one concrete number), then one specific encouragement. No lists.';
   const user =
     `Student: ${username}. Avg accuracy ${insights.accAvg}%, ${insights.rates?.blundersPerGame} blunders/game, ` +
     `weakest phase: ${insights.phaseLossRanked?.[0]?.phase}. Top recommended actions: ` +
@@ -55,7 +54,7 @@ export async function coachPlan({ model = DEFAULT_MODEL, username, insights, act
   const res = await fetch(ep.url, {
     method: 'POST',
     headers: ep.headers,
-    body: JSON.stringify({ model, max_tokens: 250, temperature: 0.5, system, messages: [{ role: 'user', content: user }] }),
+    body: JSON.stringify({ model, max_tokens: 140, temperature: 0.5, system, messages: [{ role: 'user', content: user }] }),
   });
   if (!res.ok) throw new Error('API error ' + res.status);
   const data = await res.json();

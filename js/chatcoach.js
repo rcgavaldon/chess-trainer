@@ -13,15 +13,16 @@ export function createCoachChat({ model = CHAT_MODEL, getContext }) {
     history.push({ role: 'user', content: userText });
     const system =
       'You are a friendly, patient chess coach in a back-and-forth conversation with an improving player. ' +
-      'Answer their question clearly and encouragingly in plain language (simple enough for a beginner), a few ' +
-      'sentences, specific to the position. Explain the WHY and the plan, not just the move. If they go off-topic, ' +
-      'gently steer back to the chess in front of you.\n\nCURRENT POSITION CONTEXT:\n' + (getContext ? getContext() : 'n/a');
+      'Answer in 1-2 short sentences (only go longer if the question genuinely needs it), plain language, simple ' +
+      'enough for a beginner, specific to the position. Give the WHY and the plan, not just the move — but keep it ' +
+      'tight, no filler. If they go off-topic, gently steer back to the chess in front of you.' +
+      '\n\nCURRENT POSITION CONTEXT:\n' + (getContext ? getContext() : 'n/a');
     const ep = coachEndpoint();
     if (!ep.headers) { history.pop(); throw new Error('Coach unavailable'); }
     const res = await fetch(ep.url, {
       method: 'POST',
       headers: ep.headers,
-      body: JSON.stringify({ model, max_tokens: 600, system, stream: true, messages: history.slice(-12) }),
+      body: JSON.stringify({ model, max_tokens: 350, system, stream: true, messages: history.slice(-12) }),
     });
     if (!res.ok || !res.body) {
       history.pop();
