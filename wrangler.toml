@@ -1,6 +1,6 @@
 # Cloudflare Worker config — lets Cloudflare deploy the AI-coach proxy straight from this repo
 # (Workers → Connect GitHub), so no code needs to be pasted into the browser editor.
 # Set the ANTHROPIC_KEY secret in the Cloudflare dashboard after the first deploy (never in git).
-name = "chess-coach"
+name = "chess-trainer"
 main = "proxy/coach-worker.js"
 compatibility_date = "2024-11-01"

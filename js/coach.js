@@ -6,7 +6,7 @@
 // the proxy is live.
 import * as store from './storage.js';
 
-export const COACH_PROXY = ''; // e.g. 'https://chess-coach.rgautomations.workers.dev'
+export const COACH_PROXY = 'https://chess-trainer.rgautomations.workers.dev'; // Cloudflare Worker holds the key server-side
 
 export const coachKey = () => store.get('profile.llmKey', '');
 export const coachEnabled = () => !!COACH_PROXY || !!coachKey();
