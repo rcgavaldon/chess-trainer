@@ -1,14 +1,13 @@
 // chatcoach.js — streaming, multi-turn AI coach chat (Anthropic Messages API, browser-direct).
 // Plugs into puzzles and game review for follow-up questions. Uses the owner's API key.
 import { h, clear } from './dom.js';
-import * as store from './storage.js';
+import { coachEndpoint, coachEnabled } from './coach.js';
 
-const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CHAT_MODEL = 'claude-sonnet-4-6'; // better reasoning for a coaching conversation
 
-// createCoachChat({ apiKey, getContext }) -> { ask(text, onDelta) , history, reset() }
+// createCoachChat({ getContext }) -> { ask(text, onDelta) , history, reset() }
 // getContext() returns a fresh string describing the current position/move/puzzle.
-export function createCoachChat({ apiKey, model = CHAT_MODEL, getContext }) {
+export function createCoachChat({ model = CHAT_MODEL, getContext }) {
   const history = [];
   async function ask(userText, onDelta) {
     history.push({ role: 'user', content: userText });
@@ -17,14 +16,11 @@ export function createCoachChat({ apiKey, model = CHAT_MODEL, getContext }) {
       'Answer their question clearly and encouragingly in plain language (simple enough for a beginner), a few ' +
       'sentences, specific to the position. Explain the WHY and the plan, not just the move. If they go off-topic, ' +
       'gently steer back to the chess in front of you.\n\nCURRENT POSITION CONTEXT:\n' + (getContext ? getContext() : 'n/a');
-    const res = await fetch(ENDPOINT, {
+    const ep = coachEndpoint();
+    if (!ep.headers) { history.pop(); throw new Error('Coach unavailable'); }
+    const res = await fetch(ep.url, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
+      headers: ep.headers,
       body: JSON.stringify({ model, max_tokens: 600, system, stream: true, messages: history.slice(-12) }),
     });
     if (!res.ok || !res.body) {
@@ -63,12 +59,11 @@ export function createCoachChat({ apiKey, model = CHAT_MODEL, getContext }) {
 // mountChat(el, { getContext, starter }) — renders a chat box bound to the position context.
 export function mountChat(el, { getContext, starter } = {}) {
   clear(el);
-  const key = store.get('profile.llmKey', '');
-  if (!key) {
+  if (!coachEnabled()) {
     el.append(h('div', { class: 'hint tiny' }, '💬 Add your Anthropic API key in ⚙ Settings to chat with the coach about this position.'));
     return;
   }
-  const chat = createCoachChat({ apiKey: key, getContext });
+  const chat = createCoachChat({ getContext });
   const log = h('div', { class: 'chatlog' });
   const input = h('input', { type: 'text', placeholder: starter || 'Ask the coach… e.g. "why is that better?"', onkeydown: (e) => { if (e.key === 'Enter') send(); } });
   const sendBtn = h('button', { class: 'btn small', onclick: () => send() }, 'Ask');

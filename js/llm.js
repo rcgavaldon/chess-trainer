@@ -1,24 +1,17 @@
-// llm.js — OPTIONAL richer move commentary written by Claude, using the user's own
-// Anthropic API key (entered in Settings). Calls the Messages API directly from the
-// browser via the anthropic-dangerous-direct-browser-access header.
-//
-// SECURITY: a browser-direct call exposes the API key in-page. This is acceptable for
-// the owner's personal use on their own machine. A hosted, multi-user deployment must
-// proxy this server-side instead — never ship a shared key to the client.
+// llm.js — OPTIONAL richer move commentary written by Claude. Routes through coach.js, which
+// either uses a server-side proxy (shared key, safe for all users) or the user's own key.
 
-const ENDPOINT = 'https://api.anthropic.com/v1/messages';
+import { coachEndpoint, coachEnabled } from './coach.js';
 
 // Cheap+fast default for short per-move comments; configurable from settings later.
 export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 
-export function hasKey() {
-  try { return !!localStorage.getItem('chesstrainer:root') && JSON.parse(localStorage.getItem('chesstrainer:root'))?.profile?.llmKey; }
-  catch { return false; }
-}
+export const hasKey = coachEnabled; // true when a proxy is configured OR the user has their own key
 
 // commentMove -> a 1-2 sentence coach comment string (or throws on a hard error).
-export async function commentMove({ apiKey, model = DEFAULT_MODEL, fen, color, playedSan, bestSan, label, winLoss, heuristic }) {
-  if (!apiKey) return null;
+export async function commentMove({ model = DEFAULT_MODEL, fen, color, playedSan, bestSan, label, winLoss, heuristic }) {
+  const ep = coachEndpoint();
+  if (!ep.headers) return null;
   const system =
     'You are a warm, encouraging chess coach. In 2-4 clear sentences, explain in plain language (simple enough for a ' +
     'beginner but genuinely insightful) WHY this move is good or bad: what it does well or what it gives away, what ' +
@@ -32,14 +25,9 @@ export async function commentMove({ apiKey, model = DEFAULT_MODEL, fen, color, p
     `Heuristic note: ${heuristic || 'none'}.\n` +
     'Give your short coach comment.';
 
-  const res = await fetch(ENDPOINT, {
+  const res = await fetch(ep.url, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
+    headers: ep.headers,
     body: JSON.stringify({ model, max_tokens: 320, temperature: 0.4, system, messages: [{ role: 'user', content: user }] }),
   });
   if (res.status === 401) throw new Error('Invalid Anthropic API key');
@@ -54,8 +42,9 @@ export async function commentMove({ apiKey, model = DEFAULT_MODEL, fen, color, p
 }
 
 // A short "study plan" paragraph from the improvement-plan actions (optional, owner-key).
-export async function coachPlan({ apiKey, model = DEFAULT_MODEL, username, insights, actions }) {
-  if (!apiKey) return null;
+export async function coachPlan({ model = DEFAULT_MODEL, username, insights, actions }) {
+  const ep = coachEndpoint();
+  if (!ep.headers) return null;
   const system =
     'You are a chess coach writing a brief, motivating weekly study note for a student. 3-4 sentences. ' +
     'Reference their concrete numbers, name the single most important thing to fix first, and end with one specific encouragement. No lists.';
@@ -63,9 +52,9 @@ export async function coachPlan({ apiKey, model = DEFAULT_MODEL, username, insig
     `Student: ${username}. Avg accuracy ${insights.accAvg}%, ${insights.rates?.blundersPerGame} blunders/game, ` +
     `weakest phase: ${insights.phaseLossRanked?.[0]?.phase}. Top recommended actions: ` +
     actions.slice(0, 3).map((a) => a.title).join('; ') + '. Write the note.';
-  const res = await fetch(ENDPOINT, {
+  const res = await fetch(ep.url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+    headers: ep.headers,
     body: JSON.stringify({ model, max_tokens: 250, temperature: 0.5, system, messages: [{ role: 'user', content: user }] }),
   });
   if (!res.ok) throw new Error('API error ' + res.status);

@@ -18,6 +18,7 @@ import { LESSONS } from '../lessons.js';
 import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport, renderRatingHistory } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
+import { coachEnabled } from '../coach.js';
 import { mountChat } from '../chatcoach.js';
 import { createBoard, syncBoard, legalDests, evalToWhitePct, evalText, showArrow } from '../board.js';
 import { LABELS } from '../analysis.js';
@@ -590,13 +591,12 @@ function drawImprove() {
   area.append(dash);
   renderImprove(dash, { insights: I, peer, plan, byTC: null, onTrain: trainTheme });
 
-  // optional Claude-written coach's note (owner's API key)
-  const key = store.get('profile.llmKey', '');
-  if (key && plan.length) {
+  // optional Claude-written coach's note (via the shared proxy, or the user's own key)
+  if (coachEnabled() && plan.length) {
     const note = h('div', { class: 'why', style: { color: 'var(--accent-2)', marginTop: '8px' } });
     const btn = h('button', { class: 'btn ghost small', onclick: async () => {
       btn.disabled = true; btn.textContent = 'Writing…';
-      try { const txt = await coachPlan({ apiKey: key, username: S.username, insights: I, actions: plan }); note.textContent = '💬 ' + (txt || ''); btn.remove(); }
+      try { const txt = await coachPlan({ username: S.username, insights: I, actions: plan }); note.textContent = '💬 ' + (txt || ''); btn.remove(); }
       catch (e) { note.textContent = '⚠ ' + e.message; btn.disabled = false; btn.textContent = '💬 Get a coach\'s note'; }
     } }, '💬 Get a coach\'s note');
     dash.append(h('div', { class: 'card section' }, h('h2', {}, 'Coach\'s note'), btn, note));
@@ -833,14 +833,13 @@ function renderExplain(p) {
     h('div', { class: 'why' }, p.explanation),
     p.bestUci && p.playedUci !== p.bestUci ? h('div', { class: 'best' }, 'Engine\'s choice: ', h('b', {}, p.bestSan || '—')) : null,
   );
-  // optional richer commentary from Claude (owner's API key)
-  const key = store.get('profile.llmKey', '');
-  if (key) {
+  // optional richer commentary from Claude (via the shared proxy, or the user's own key)
+  if (coachEnabled()) {
     const coachLine = h('div', { class: 'why', style: { marginTop: '8px', color: 'var(--accent-2)' } });
     const btn = h('button', { class: 'btn ghost small', style: { marginTop: '8px' }, onclick: async () => {
       btn.disabled = true; btn.textContent = 'Coaching…';
       try {
-        const txt = await commentMove({ apiKey: key, fen: p.fenBefore, color: p.color, playedSan: p.san, bestSan: p.bestSan, label: p.label, winLoss: p.winLoss, heuristic: p.explanation });
+        const txt = await commentMove({ fen: p.fenBefore, color: p.color, playedSan: p.san, bestSan: p.bestSan, label: p.label, winLoss: p.winLoss, heuristic: p.explanation });
         coachLine.textContent = '💬 ' + (txt || '(no comment)');
         btn.remove();
       } catch (e) { coachLine.textContent = '⚠ ' + e.message; btn.disabled = false; btn.textContent = '💬 Ask the coach'; }
