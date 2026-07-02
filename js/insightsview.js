@@ -67,13 +67,61 @@ function eloHistorySvg(points) {
     <circle cx="${x(n - 1).toFixed(1)}" cy="${y(cur).toFixed(1)}" r="3.6" fill="var(--accent)" stroke="#0b0f0c" stroke-width="1.2"/></svg>`;
 }
 
+const RATE_PERIODS = [
+  { key: '1w', label: '1W', days: 7 }, { key: '1m', label: '1M', days: 30 },
+  { key: '3m', label: '3M', days: 90 }, { key: 'all', label: 'All', days: null },
+];
+const parseGameDate = (d) => { if (d == null) return null; if (typeof d === 'number') return d < 1e12 ? d * 1000 : d; const t = Date.parse(d); return isNaN(t) ? null : t; };
+const trendWord = (dl) => (dl >= 8 ? 'climbing' : dl >= 2 ? 'trending up' : dl <= -8 ? 'sliding' : dl <= -2 ? 'dipping' : 'steady');
+
+// Rich rating report: big current rating + trend, time-period filters, and detail stats.
+export function renderRatingReport(host, eloPoints, scopeLabel) {
+  const all = (eloPoints || []).filter((p) => p.rating != null);
+  if (all.length < 3) return;
+  const card = h('div', { class: 'card section' });
+  host.append(card);
+  const state = { period: 'all' };
+  const miniStat = (k, v, color) => h('div', { style: { flex: '1 1 0', textAlign: 'center', borderRight: '1px solid var(--line)', padding: '2px 4px' } },
+    h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '17px', color: color || 'var(--text)' } }, v),
+    h('div', { class: 'hint tiny' }, k));
+  const draw = () => {
+    clear(card);
+    const P = RATE_PERIODS.find((p) => p.key === state.period);
+    let pts = all;
+    if (P.days != null) {
+      const cutoff = Date.now() - P.days * 86400000;
+      const dated = all.filter((p) => parseGameDate(p.date) != null);
+      const inWindow = dated.length >= 3 ? all.filter((p) => { const t = parseGameDate(p.date); return t != null && t >= cutoff; }) : [];
+      pts = inWindow.length >= 3 ? inWindow : all.slice(-Math.max(15, Math.round(P.days / 1.5))); // fall back to count if dates thin
+    }
+    if (pts.length < 2) pts = all;
+    const rs = pts.map((p) => p.rating);
+    const cur = rs[rs.length - 1], delta = cur - rs[0], peak = Math.max(...rs), low = Math.min(...rs);
+    const tc = delta > 0 ? 'var(--good)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
+    const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '▬';
+    card.append(
+      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' } },
+        h('div', {},
+          h('div', { class: 'hint tiny', style: { textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 } }, `${scopeLabel ? scopeLabel + ' ' : ''}rating`),
+          h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px', marginTop: '2px' } },
+            h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '34px', letterSpacing: '-1px', lineHeight: '1' } }, cur),
+            h('div', { style: { color: tc, fontWeight: 800, fontFamily: 'var(--mono)', fontSize: '15px' } }, `${arrow} ${delta >= 0 ? '+' : ''}${delta}`)),
+          h('div', { class: 'hint tiny', style: { marginTop: '3px', color: tc } }, `${trendWord(delta)} · ${P.label === 'All' ? 'all time' : 'past ' + P.label.replace('1W', 'week').replace('1M', 'month').replace('3M', '3 months')}`)),
+        h('div', { class: 'chip-row' }, ...RATE_PERIODS.map((pr) => h('button', { class: 'chip' + (state.period === pr.key ? ' active-chip' : ''), onclick: () => { state.period = pr.key; draw(); } }, pr.label)))),
+      h('div', { html: eloHistorySvg(pts), style: { marginTop: '12px' } }),
+      h('div', { class: 'row', style: { gap: '0', marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '10px' } },
+        miniStat('Peak', peak, 'var(--accent)'), miniStat('Low', low), miniStat('Games', pts.length),
+        h('div', { style: { flex: '1 1 0', textAlign: 'center', padding: '2px 4px' } },
+          h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '17px', color: tc } }, `${delta >= 0 ? '+' : ''}${delta}`),
+          h('div', { class: 'hint tiny' }, 'Net'))));
+  };
+  draw();
+}
+
 // Standalone rating-history card (used for instant value before analysis finishes).
 export function renderRatingHistory(host, eloPoints, scopeLabel) {
   if (!eloPoints || eloPoints.length < 3) return;
-  host.append(h('div', { class: 'card section' },
-    h('h2', {}, `Your ${scopeLabel ? scopeLabel + ' ' : ''}rating over time`),
-    h('div', { html: eloHistorySvg(eloPoints) }),
-    h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Each step is a game in this category, oldest on the left — the dot on the right is now.')));
+  renderRatingReport(host, eloPoints, scopeLabel);
 }
 
 const LEVEL_COLOR = { weak: 'var(--bad)', ok: 'var(--warn)', strong: 'var(--good)' };
@@ -106,13 +154,8 @@ export function renderCleanReport(host, R) {
     snap('Accuracy', R.accAvg != null ? h('span', { style: { color: accColor(R.accAvg) } }, pct(R.accAvg)) : '—', h('span', { style: { color: arrowColor } }, R.accDelta ? `${R.accDelta > 0 ? '+' : ''}${Math.round(R.accDelta)}% last 10` : 'steady')),
     snap('Last 10', R.last10 ? `${R.last10.w}-${R.last10.l}-${R.last10.d}` : '—', R.last10 ? `${winPctOf(R.last10)}% score` : '')));
 
-  // Rating history (ELO over time) — what kids actually want to watch climb.
-  if (R.eloPoints && R.eloPoints.length >= 3) {
-    host.append(h('div', { class: 'card section' },
-      h('h2', {}, `Your ${R.scope ? R.scope + ' ' : ''}rating over time`),
-      h('div', { html: eloHistorySvg(R.eloPoints) }),
-      h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Each step is a game in this category, oldest on the left. The dot on the right is where you are now.')));
-  }
+  // Rating history (ELO over time) — current rating, trend, and time-period filters.
+  if (R.eloPoints && R.eloPoints.length >= 3) renderRatingReport(host, R.eloPoints, R.scope);
 
   // The centrepiece: where to focus, ranked and plain-spoken.
   if (R.focus && R.focus.length) {
