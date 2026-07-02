@@ -403,8 +403,25 @@ details.more > summary:hover { color: var(--text); }
   .review { grid-template-columns: 16px 1fr; gap: 8px; }
   .review[style], .trainer-grid { grid-template-columns: 1fr !important; grid-template-areas: none !important; }
   .trainer-board { width: 100%; max-width: 100%; margin: 0; }
-  #board, .cg-wrap, .board-wrap { width: calc(100vw - 32px); height: calc(100vw - 32px); border-radius: 14px; }
-  .evalbar { height: calc(100vw - 32px); }
+  /* Board sized so board + controls + explanation fit together without scrolling: capped by BOTH
+     the screen width AND the leftover height (reserve room for the top bar, nav row and the
+     explanation). Shrinks on short screens; a little side margin so it doesn't feel edge-cramped. */
+  #board, .cg-wrap, .board-wrap { width: min(calc(100vw - 44px), calc(100vh - 300px)); height: min(calc(100vw - 44px), calc(100vh - 300px)); border-radius: 14px; margin-inline: auto; }
+  .evalbar { height: min(calc(100vw - 44px), calc(100vh - 300px)); }
+
+  /* --- game review order: keep what you use move-by-move (board, controls, explanation, coach)
+     together at the top; push the accuracy bar, move-quality summary, move list and eval graph
+     below. Pure CSS reorder — the DOM (and desktop layout) is untouched. --- */
+  #review-card { display: flex; flex-direction: column; gap: 12px; }
+  #review-card > .review { order: 1; margin-top: 0; }   /* board + controls + explanation + coach */
+  #review-card > .accbar { order: 2; }                    /* accuracy numbers */
+  #review-card > .chip-row { order: 3; }                  /* move-quality summary */
+  #review-card > :not(.review):not(.accbar):not(.chip-row) { order: 4; } /* eval graph last */
+  .review .sidebar { display: flex; flex-direction: column; gap: 10px; }
+  .review .sidebar #movelist { order: 10; max-height: 168px; overflow-y: auto; } /* move list at the bottom, self-scrolling */
+
+  /* stop iOS double-tap-to-zoom when tapping the board/controls (pinch-zoom still works) */
+  main, .topbar, .tabs a { touch-action: manipulation; }
 
   /* --- stats / snapshot --- */
   .stat-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
