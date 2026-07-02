@@ -4,8 +4,8 @@ name: Daily Chess.com ratings
 # auto-updates each day — no one needs to open the app.
 on:
   schedule:
-    - cron: '0 9 * * *'   # 09:00 UTC daily (~3 AM El Paso)
-  workflow_dispatch: {}    # lets you run it on demand from the Actions tab
+    - cron: '0 6 * * *'   # 06:00 UTC = midnight in El Paso (Mountain). Shifts ~1h with DST.
+  workflow_dispatch: {}    # instant on-demand run from the Actions tab
 
 jobs:
   update:
