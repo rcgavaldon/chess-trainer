@@ -2,6 +2,7 @@
 // Plugs into puzzles and game review for follow-up questions. Uses the owner's API key.
 import { h, clear } from './dom.js';
 import { coachEndpoint, coachEnabled } from './coach.js';
+import { getLang } from './i18n.js';
 
 const CHAT_MODEL = 'claude-sonnet-4-6'; // better reasoning for a coaching conversation
 
@@ -16,6 +17,7 @@ export function createCoachChat({ model = CHAT_MODEL, getContext }) {
       'Answer in 1-2 short sentences (only go longer if the question genuinely needs it), plain language, simple ' +
       'enough for a beginner, specific to the position. Give the WHY and the plan, not just the move — but keep it ' +
       'tight, no filler. If they go off-topic, gently steer back to the chess in front of you.' +
+      (getLang() === 'es' ? ' Reply entirely in natural Spanish.' : '') +
       '\n\nCURRENT POSITION CONTEXT:\n' + (getContext ? getContext() : 'n/a');
     const ep = coachEndpoint();
     if (!ep.headers) { history.pop(); throw new Error('Coach unavailable'); }

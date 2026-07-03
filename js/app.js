@@ -2,6 +2,7 @@
 import * as store from './storage.js';
 import { h, clear } from './dom.js';
 import { createEngine } from './engine.js';
+import { getLang, setLang, startI18n, translateTree } from './i18n.js';
 import * as personal from './views/personal.js';
 import * as openings from './views/openings.js';
 import * as train from './views/train.js';
@@ -117,6 +118,7 @@ function draw(route) {
   viewEl.innerHTML = '';
   try { views[route].render(viewEl, ctx); }
   catch (e) { viewEl.innerHTML = `<div class="empty">Something broke rendering this view.<br><span class="tiny">${e.message}</span></div>`; console.error(e); }
+  translateTree(viewEl); // flip the freshly-rendered view to Spanish if that's the language (no-op in English)
 }
 
 if (!store.storageAvailable()) {
@@ -158,7 +160,16 @@ if (store.get('profile.role') === 'student') {
     if (a.dataset.route === 'class' || a.dataset.route === 'tournament') a.remove();
   }
 }
+// ---- language toggle (English ↔ Spanish; flips the whole UI + makes the AI reply in Spanish) ----
+const langBtn = document.getElementById('lang-btn');
+if (langBtn) {
+  langBtn.textContent = getLang() === 'es' ? '🌐 EN' : '🌐 ES'; // shows the language you'll switch TO
+  langBtn.title = getLang() === 'es' ? 'Switch to English' : 'Cambiar a Español';
+  langBtn.addEventListener('click', () => setLang(getLang() === 'es' ? 'en' : 'es'));
+}
+
 store.onRouteChange(draw);
+startI18n(); // translate the chrome + current view, and observe async-rendered content, when Spanish
 if (!store.get('profile.username')) showOnboarding();
 
 // ---- first-run onboarding (saved on this device) ----
