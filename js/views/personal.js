@@ -913,13 +913,16 @@ function renderExplain(p) {
   if (!box) return;
   if (!p) { clear(box).append(h('div', { class: 'hint' }, 'Starting position. Step forward to review each move.')); return; }
   const lab = LABELS[p.label] || {};
-  clear(box).append(
+  // NOTE: clear(box).append(...) is the NATIVE Element.append — it renders a null child as the
+  // literal text "null" (unlike our h() helper, which skips nulls). So filter nulls out here; the
+  // "Engine's choice" line is null on best/matched moves and was printing a stray "null".
+  clear(box).append(...[
     h('span', { class: 'label-chip', style: { background: (lab.color || '#888') + '22', color: lab.color } }, `${lab.glyph || ''} ${p.label}`),
     h('div', {}, h('span', { class: 'move-san' }, `${p.moveNumber}${p.color === 'white' ? '.' : '…'} ${p.san}`),
       p.winLoss >= 1 ? h('span', { class: 'hint' }, `  (−${p.winLoss}% win chance)`) : null),
     h('div', { class: 'why' }, p.explanation),
     p.bestUci && p.playedUci !== p.bestUci ? h('div', { class: 'best' }, 'Engine\'s choice: ', h('b', {}, p.bestSan || '—')) : null,
-  );
+  ].filter(Boolean));
   // optional richer commentary from Claude (via the shared proxy, or the user's own key)
   if (coachEnabled()) {
     const coachLine = h('div', { class: 'why', style: { marginTop: '8px', color: 'var(--accent-2)' } });

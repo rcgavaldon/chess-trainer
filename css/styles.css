@@ -437,11 +437,13 @@ details.more > summary:hover { color: var(--text); }
   /* Board sized so board + controls + explanation fit together without scrolling: capped by BOTH
      the screen width AND the leftover height (reserve room for the top bar, nav row and the
      explanation). Shrinks on short screens; a little side margin so it doesn't feel edge-cramped. */
-  #board, .cg-wrap, .board-wrap { width: min(calc(100vw - 44px), calc(100vh - 320px)); height: min(calc(100vw - 44px), calc(100vh - 320px)); border-radius: 14px; margin-inline: auto; }
-  .evalbar { height: min(calc(100vw - 44px), calc(100vh - 320px)); }
+  /* ~10% smaller than full-width, and capped by leftover height, so the board + controls +
+     explanation (through the "Ask the coach" button) fit comfortably without scrolling. */
+  #board, .cg-wrap, .board-wrap { width: min(80vw, calc(100vh - 360px)); height: min(80vw, calc(100vh - 360px)); border-radius: 14px; margin-inline: auto; }
+  .evalbar { height: min(80vw, calc(100vh - 360px)); }
   /* Chat mode: board shrinks a bit more so the board + chat become their own comfortable view. */
-  #review-card[data-panel="chat"] #board, #review-card[data-panel="chat"] .cg-wrap, #review-card[data-panel="chat"] .board-wrap { width: min(calc(100vw - 84px), calc(100vh - 430px)); height: min(calc(100vw - 84px), calc(100vh - 430px)); }
-  #review-card[data-panel="chat"] .evalbar { height: min(calc(100vw - 84px), calc(100vh - 430px)); }
+  #review-card[data-panel="chat"] #board, #review-card[data-panel="chat"] .cg-wrap, #review-card[data-panel="chat"] .board-wrap { width: min(72vw, calc(100vh - 440px)); height: min(72vw, calc(100vh - 440px)); }
+  #review-card[data-panel="chat"] .evalbar { height: min(72vw, calc(100vh - 440px)); }
 
   /* --- game review order: keep what you use move-by-move (board, controls, explanation, coach)
      together at the top; push the accuracy bar, move-quality summary, move list and eval graph
