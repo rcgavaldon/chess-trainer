@@ -22,7 +22,7 @@ export default {
     // ---- GET /uscf/… — US Chess tournament-history proxy (ratings-api.uschess.org sends no CORS
     // headers, so the app can't call it directly). Whitelisted paths only, cached at the edge.
     if (request.method === 'GET') {
-      const m = new URL(request.url).pathname.match(/^\/uscf\/(\d{8,9})(\/(events|sections|game-stats))?$/);
+      const m = new URL(request.url).pathname.match(/^\/uscf\/(\d{8,9})(\/(events|sections|games))?$/);
       if (!m) return json({ error: 'Not found' }, 404, cors);
       const qs = new URL(request.url).search || '';
       const upstream = await fetch(`https://ratings-api.uschess.org/api/v1/members/${m[1]}${m[2] || ''}${qs}`, {

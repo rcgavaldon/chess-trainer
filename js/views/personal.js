@@ -19,7 +19,7 @@ import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, r
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
 import { coachEnabled } from '../coach.js';
-import { fetchUscfHistory, crosstableUrl, uscfAvailable, validUscfId } from '../uscf.js';
+import { fetchUscfHistory, eventUrl, playerUrl, uscfAvailable, validUscfId } from '../uscf.js';
 import { mountChat } from '../chatcoach.js';
 import { createBoard, syncBoard, legalDests, evalToWhitePct, evalText, showArrow } from '../board.js';
 import { LABELS } from '../analysis.js';
@@ -813,23 +813,33 @@ export function uscfCard(uscfId) {
       h('h2', { style: { margin: 0 } }, '🏅 US Chess tournaments'), refresh),
     body);
 
+  const fmtRec = (r) => r ? `${r.w}W–${r.l}L${r.d ? `–${r.d}D` : ''}` : null;
   function eventRow(ev) {
     const main = ev.sections[0] || {};
     const d = uscfDelta(main);
-    const chip = d == null ? null : h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, color: d >= 0 ? 'var(--good)' : 'var(--bad)' } }, (d >= 0 ? '+' : '') + d);
+    const chips = h('div', { class: 'row', style: { gap: '6px', flexShrink: 0 } },
+      ev.record ? h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700 } }, fmtRec(ev.record)) : null,
+      d == null ? null : h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, color: d >= 0 ? 'var(--good)' : 'var(--bad)' } }, (d >= 0 ? '+' : '') + d));
+    const gameLine = (g) => h('div', { style: { padding: '2px 0 2px 12px' } },
+      h('span', { style: { fontWeight: 800, color: g.outcome === 'Win' ? 'var(--good)' : g.outcome === 'Loss' ? 'var(--bad)' : 'var(--muted)' } },
+        g.outcome === 'Win' ? '✓ W' : g.outcome === 'Loss' ? '✗ L' : '½ D'),
+      ` vs ${g.opponent}${g.color ? ` (as ${g.color})` : ''}`);
     const detail = h('div', { class: 'hint tiny', style: { display: 'none', marginTop: '8px', paddingLeft: '2px' } },
-      ...ev.sections.map((s) => h('div', { style: { padding: '3px 0' } },
-        `${s.name || 'Section'}${s.system ? ' · ' + s.system : ''}: `,
-        s.pre != null ? h('b', {}, `${s.pre} → ${s.post}`) : '(unrated section)',
-        uscfDelta(s) != null ? h('span', { style: { color: uscfDelta(s) >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 700 } }, `  ${uscfDelta(s) >= 0 ? '+' : ''}${uscfDelta(s)}`) : null)),
-      ev.id ? h('div', { style: { marginTop: '6px' } }, h('a', { href: crosstableUrl(ev.id), target: '_blank', rel: 'noopener' }, 'Full crosstable ↗')) : null);
+      ...ev.sections.map((s) => h('div', { style: { padding: '4px 0' } },
+        h('div', {},
+          h('b', {}, `${s.name || 'Section'}${s.system ? ' · ' + s.system : ''}`),
+          s.record ? h('span', {}, `  ${fmtRec(s.record)}`) : null,
+          s.pre != null ? h('span', {}, '  · rating ', h('b', {}, `${s.pre} → ${s.post}`)) : null,
+          uscfDelta(s) != null ? h('span', { style: { color: uscfDelta(s) >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 700 } }, ` ${uscfDelta(s) >= 0 ? '+' : ''}${uscfDelta(s)}`) : null),
+        ...s.games.map(gameLine))),
+      ev.id ? h('div', { style: { marginTop: '6px' } }, h('a', { href: eventUrl(ev.id), target: '_blank', rel: 'noopener', onclick: (e) => e.stopPropagation() }, 'View event on US Chess ↗')) : null);
     return h('div', { style: { padding: '10px 0', borderTop: '1px solid var(--line)', cursor: 'pointer' },
       onclick: () => { detail.style.display = detail.style.display === 'none' ? 'block' : 'none'; } },
       h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' } },
         h('div', { style: { minWidth: 0 } },
           h('b', {}, ev.name),
           h('div', { class: 'hint tiny' }, [fmtUscfDate(ev.endDate), ev.place].filter(Boolean).join(' · '))),
-        chip),
+        chips),
       detail);
   }
 
@@ -841,8 +851,11 @@ export function uscfCard(uscfId) {
       clear(body);
       if (!data.events.length) { body.append(h('div', { class: 'hint' }, 'No rated tournaments on record yet — they\'ll show up here after your first one.')); return; }
       const reg = data.member.ratings.find((r) => r.system === 'R');
+      const ageMin = Math.round((Date.now() - (data.fetchedAt || Date.now())) / 60000);
+      const age = ageMin < 2 ? 'just now' : ageMin < 90 ? `${ageMin} min ago` : ageMin < 48 * 60 ? `${Math.round(ageMin / 60)}h ago` : `${Math.round(ageMin / 1440)}d ago`;
       body.append(h('div', { class: 'hint tiny', style: { marginBottom: '4px' } },
-        `${data.events.length} events on record${reg ? ` · current regular rating ${reg.rating}` : ''} · tap one for details`));
+        `${data.events.length} events${reg ? ` · regular rating ${reg.rating}` : ''} · updated ${age} · tap an event for games · `,
+        h('a', { href: playerUrl(id), target: '_blank', rel: 'noopener' }, 'US Chess profile ↗')));
       const list = h('div', {});
       const renderN = (n) => {
         clear(list).append(...data.events.slice(0, n).map(eventRow));
