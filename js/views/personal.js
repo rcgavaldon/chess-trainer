@@ -754,7 +754,7 @@ function renderReview(game, analysis) {
   // focused view — and the coach still sees whatever position you've stepped to. Desktop shows both
   // (the tabs are hidden by CSS there).
   const expTab = h('button', { class: 'panel-tab active' }, '📖 Explanation');
-  const chatTab = h('button', { class: 'panel-tab' }, '💬 Chat');
+  const chatTab = h('button', { class: 'panel-tab chat-tab' }, '💬 Chat');
   const panelTabs = h('div', { class: 'panel-tabs' }, expTab, chatTab);
   const chatSection = h('div', { class: 'section rc-chat' },
     h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '6px', color: 'var(--accent-2)' } }, '💬 Ask the coach — it sees the position you\'re on'),
@@ -913,20 +913,24 @@ function renderExplain(p) {
   if (!box) return;
   if (!p) { clear(box).append(h('div', { class: 'hint' }, 'Starting position. Step forward to review each move.')); return; }
   const lab = LABELS[p.label] || {};
+  // Frame the engine line to match the grade: for a good move it's an alternative ("Engine's top
+  // pick"), for a weak move it's the correction ("Better was"). Never contradicts the grade.
+  const GOODLBL = new Set(['Brilliant', 'Great', 'Best', 'Excellent', 'Good', 'Book']);
+  const bestPrefix = GOODLBL.has(p.label) ? 'Engine\'s top pick: ' : 'Better was: ';
   // NOTE: clear(box).append(...) is the NATIVE Element.append — it renders a null child as the
   // literal text "null" (unlike our h() helper, which skips nulls). So filter nulls out here; the
-  // "Engine's choice" line is null on best/matched moves and was printing a stray "null".
+  // engine line is null on best/matched moves and was printing a stray "null".
   clear(box).append(...[
     h('span', { class: 'label-chip', style: { background: (lab.color || '#888') + '22', color: lab.color } }, `${lab.glyph || ''} ${p.label}`),
     h('div', {}, h('span', { class: 'move-san' }, `${p.moveNumber}${p.color === 'white' ? '.' : '…'} ${p.san}`),
       p.winLoss >= 1 ? h('span', { class: 'hint' }, `  (−${p.winLoss}% win chance)`) : null),
     h('div', { class: 'why' }, p.explanation),
-    p.bestUci && p.playedUci !== p.bestUci ? h('div', { class: 'best' }, 'Engine\'s choice: ', h('b', {}, p.bestSan || '—')) : null,
+    p.bestUci && p.playedUci !== p.bestUci ? h('div', { class: 'best' }, bestPrefix, h('b', {}, p.bestSan || '—')) : null,
   ].filter(Boolean));
   // optional richer commentary from Claude (via the shared proxy, or the user's own key)
   if (coachEnabled()) {
     const coachLine = h('div', { class: 'why', style: { marginTop: '8px', color: 'var(--accent-2)' } });
-    const btn = h('button', { class: 'btn ghost small', style: { marginTop: '8px' }, onclick: async () => {
+    const btn = h('button', { class: 'btn small coach-cta', style: { marginTop: '8px' }, onclick: async () => {
       btn.disabled = true; btn.textContent = 'Coaching…';
       try {
         const txt = await commentMove({ fen: p.fenBefore, color: p.color, playedSan: p.san, bestSan: p.bestSan, label: p.label, winLoss: p.winLoss, heuristic: p.explanation });

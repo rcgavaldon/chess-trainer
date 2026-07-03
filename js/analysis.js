@@ -92,8 +92,9 @@ export function classifyMove(evalBeforeWhite, evalAfterWhite, ctx = {}) {
   if (before >= 60 && winLoss >= 10 && winLoss < 30 && after < 55) return out('Miss');
 
   // Win%-drop bands. Lichess thresholds: >=10 inaccuracy, >=20 mistake, >=30 blunder.
-  // The Best/Excellent/Good split subdivides the "fine" zone for Chess.com feel.
-  if (winLoss < 2) return out('Best');
+  // NOTE: "Best" is ONLY for playing the engine's own top move (handled above via matchedBest).
+  // A near-perfect but DIFFERENT move is "Excellent" — otherwise we'd stamp "Best" on a move while
+  // also showing "Engine's choice: <other>" and a coach note calling the other move stronger.
   if (winLoss < 5) return out('Excellent');
   if (winLoss < 10) return out('Good');
   if (winLoss < 20) return out('Inaccuracy');

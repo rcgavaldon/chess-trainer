@@ -208,6 +208,16 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 
 /* Explanation/Chat toggle is mobile-only — desktop shows both panels side-by-side in the sidebar. */
 .panel-tabs { display: none; }
+
+/* Draw the eye to the AI coach: a glowing "Ask the coach" button + a softly pulsing Chat tab. */
+.coach-cta { background: linear-gradient(180deg, var(--accent), #6aa84a); color: #07130a; border: none; font-weight: 700; box-shadow: 0 0 0 1px rgba(125, 211, 95, .4), 0 0 16px rgba(125, 211, 95, .3); }
+.coach-cta:hover { box-shadow: 0 0 0 1px rgba(125, 211, 95, .6), 0 0 22px rgba(125, 211, 95, .45); transform: translateY(-1px); }
+.panel-tab.chat-tab:not(.active) { border-color: rgba(125, 211, 95, .55); color: var(--accent); animation: chatGlow 2.6s ease-in-out infinite; }
+@keyframes chatGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(125, 211, 95, .2), 0 0 8px rgba(125, 211, 95, .12); }
+  50% { box-shadow: 0 0 0 1px rgba(125, 211, 95, .5), 0 0 16px rgba(125, 211, 95, .3); }
+}
+@media (prefers-reduced-motion: reduce) { .panel-tab.chat-tab:not(.active) { animation: none; box-shadow: 0 0 0 1px rgba(125, 211, 95, .4); } }
 .glyph { font-size: 11px; font-weight: 800; }
 
 .accbar { display: flex; gap: 26px; align-items: center; }

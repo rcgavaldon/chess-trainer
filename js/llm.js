@@ -12,15 +12,26 @@ export const hasKey = coachEnabled; // true when a proxy is configured OR the us
 export async function commentMove({ model = DEFAULT_MODEL, fen, color, playedSan, bestSan, label, winLoss, heuristic }) {
   const ep = coachEndpoint();
   if (!ep.headers) return null;
-  const system =
-    'You are a warm, encouraging chess coach. In 1-2 short sentences (add a third ONLY if the position truly needs ' +
-    'it to make sense), say in plain language WHY this move is good or bad — the key idea or what it gives away, and ' +
-    'the better plan if there was one. Be specific to THIS position: name the squares/pieces. Simple enough for a ' +
-    'beginner, no jargon, no variations, no restating the FEN, no filler. Keep it tight.';
+  // Keep the coach's take CONSISTENT with the move grade: affirm a good move (don't undercut it by
+  // calling a different engine pick "stronger"); only prescribe a better move for a weak one.
+  const GOOD = ['Brilliant', 'Great', 'Best', 'Excellent', 'Good', 'Book'];
+  const isGood = GOOD.includes(label);
+  const altMove = bestSan && bestSan !== playedSan ? bestSan : null;
+  const system = isGood
+    ? 'You are a warm, encouraging chess coach. In 1-2 short sentences, affirm WHY this move is good — the key idea ' +
+      'it achieves in THIS position (name the squares/pieces). If the engine had a slightly different top pick you ' +
+      'MAY mention it as an equally-strong or marginally-sharper alternative, but NEVER call the played move a ' +
+      'mistake or say the other move is "better" or "stronger" — the player did well. Plain language, no jargon, no ' +
+      'variations, no FEN, no filler. Keep it tight.'
+    : 'You are a warm, encouraging chess coach. In 1-2 short sentences (a third ONLY if truly needed), say WHY this ' +
+      'move is weak — what it gives away — and what the stronger move does better (the plan or threat behind it). Be ' +
+      'specific to THIS position: name the squares/pieces. Plain language, no jargon, no variations, no FEN, no filler.';
   const user =
     `Position FEN: ${fen}\n` +
-    `${color} played ${playedSan}, graded "${label}"${winLoss ? ` (it dropped about ${winLoss}% win chance)` : ''}.\n` +
-    `Engine's preferred move: ${bestSan || 'n/a'}.\n` +
+    `${color} played ${playedSan}, graded "${label}"${winLoss ? ` (win chance changed about ${winLoss}%)` : ''}.\n` +
+    (altMove
+      ? (isGood ? `Engine's top pick was ${altMove} — usually just an equally good alternative here.\n` : `The stronger move was ${altMove}.\n`)
+      : 'This WAS the engine\'s own top move.\n') +
     `Heuristic note: ${heuristic || 'none'}.\n` +
     'Give your short coach comment.';
 
