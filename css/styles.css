@@ -493,8 +493,13 @@ details.more > summary:hover { color: var(--text); }
   th { font-size: 10.5px; }
 
   /* --- rows --- */
-  .game-row { grid-template-columns: 50px 1fr 66px; gap: 8px; padding: 13px; border-radius: 14px; }
-  .game-row > :nth-child(3) { display: none; }
+  /* result · opponent · accuracy · Review/Analyze button — the button is the 5th child and was
+     spilling out of a 3-column grid. Give it its own column; hide the time-control column. */
+  .game-row { grid-template-columns: 42px minmax(0, 1fr) auto auto; gap: 8px; padding: 11px 12px; border-radius: 14px; }
+  .game-row > :nth-child(3) { display: none; }               /* time control */
+  .game-row > :nth-child(4) { font-size: 11px; text-align: right; line-height: 1.15; max-width: 56px; } /* acc / not analyzed */
+  .game-row .opp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .game-row .btn.small { padding: 8px 12px; font-size: 12.5px; min-height: 0; border-radius: 10px; }
   .lb-row { padding: 13px 14px !important; }
   .focus-row { grid-template-columns: 34px 1fr; gap: 10px; }
   .focus-row > a, .focus-row > button { grid-column: 1 / -1; justify-self: stretch; text-align: center; margin-top: 6px; }

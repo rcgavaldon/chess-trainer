@@ -15,15 +15,32 @@ export function setLang(lang) {
   location.reload(); // re-render from English source, then translate on the way back if 'es'
 }
 
+// Patterns for the common DYNAMIC strings (names/numbers baked in) that can't be exact-matched.
+// Kept small + anchored; tried only when the dictionary misses.
+const ES_PATTERNS = [
+  [/^(.+)'s coach$/, 'Entrenador de $1'],
+  [/^Last (\d+) games ·$/, 'Últimas $1 partidas ·'],
+  [/^Last (\d+) games$/, 'Últimas $1 partidas'],
+  [/^Hey (.+) 👋$/, 'Hola $1 👋'],
+  [/^Welcome, (.+)! 👋$/, '¡Bienvenido, $1! 👋'],
+  [/^You're rated (.+?)\. Recent form: (.+?)\. Here's your plan\.$/, 'Tu rating es $1. Forma reciente: $2. Aquí tienes tu plan.'],
+  [/^(\d+) solved · (\d+) missed$/, '$1 resueltos · $2 fallados'],
+  [/^(\d+) of (\d+)$/, '$1 de $2'],
+  [/^vs (.+) · (.+)$/, 'vs $1 · $2'],
+];
+
 // Translate one string, preserving its surrounding whitespace; returns it unchanged if no entry.
 // Internal whitespace is collapsed for the lookup (so a string that renders across two lines still
-// matches its single-line dictionary key).
+// matches its single-line dictionary key); dynamic strings fall through to ES_PATTERNS.
 function tr(s) {
   if (s == null) return s;
   const trimmed = s.trim();
   if (!trimmed) return s;
   const norm = trimmed.replace(/\s+/g, ' ');
-  const es = ES[norm] != null ? ES[norm] : ES[trimmed];
+  let es = ES[norm] != null ? ES[norm] : ES[trimmed];
+  if (es == null) {
+    for (const [re, rep] of ES_PATTERNS) { if (re.test(norm)) { es = norm.replace(re, rep); break; } }
+  }
   if (es == null) return s;
   const lead = s.slice(0, s.length - s.trimStart().length);
   const trail = s.slice(s.trimEnd().length);

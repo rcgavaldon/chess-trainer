@@ -4,7 +4,7 @@
 import { h, clear } from '../dom.js';
 import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
-import { swissPairRound, roundRobinSchedule, balancedPairs, computeStandings, suggestedRounds } from '../pairing.js';
+import { swissPairRound, roundRobinSchedule, balancedPairs, randomPairRound, computeStandings, suggestedRounds } from '../pairing.js';
 
 const TS = { selected: null };
 let CTX = null, host = null;
@@ -42,40 +42,60 @@ function drawList() {
 function createForm() {
   const rs = rosters();
   const ids = Object.keys(rs);
-  if (!ids.length) return h('div', { class: 'card section' }, h('div', { class: 'hint' }, 'Create a class roster first (Class tab), then build a tournament from it.'));
-  const name = h('input', { type: 'text', placeholder: 'Event name, e.g. Spring Open' });
-  const roster = h('select', {}, ...ids.map((id) => h('option', { value: id }, rs[id].name)));
+  const field = (label, el) => h('label', { style: { display: 'block', marginBottom: '12px', fontSize: '13px', fontWeight: 600 } }, label, el);
+  const name = h('input', { type: 'text', placeholder: 'e.g. Friday Blitz' });
+  const names = h('textarea', { rows: 5, placeholder: 'One player per line — just names for an unrated event:\n  Ana\n  Beto\n  Carlos\nOptional rating: "Diana, 1200"', style: { width: '100%', fontFamily: 'inherit', resize: 'vertical' } });
+  const roster = ids.length ? h('select', {}, h('option', { value: '' }, '— or pull a class roster —'), ...ids.map((id) => h('option', { value: id }, rs[id].name))) : null;
   const format = h('select', {},
-    h('option', { value: 'swiss' }, 'Swiss (multi-round)'),
+    h('option', { value: 'random' }, 'Random pairing (unrated-friendly)'),
+    h('option', { value: 'swiss' }, 'Swiss (multi-round, rating-seeded)'),
     h('option', { value: 'roundrobin' }, 'Round robin (all play all)'),
     h('option', { value: 'balanced-fair' }, 'Single round — fair (similar strength)'),
     h('option', { value: 'balanced-mentor' }, 'Single round — mentor (strong + weak)'));
   return h('div', { class: 'card section' },
     h('h2', {}, 'New event'),
-    h('div', { class: 'row' }, name, roster, format,
-      h('button', { class: 'btn', onclick: () => createEvent(name.value.trim(), roster.value, format.value) }, 'Create')),
-    h('div', { class: 'hint tiny section' }, 'Ratings are pulled from each student\'s Chess.com profile when the event is created.'));
+    field('Event name', name),
+    field('Players — type names, one per line', names),
+    roster ? field('…or pull a class roster (uses Chess.com ratings)', roster) : null,
+    field('Format', format),
+    h('button', { class: 'btn', onclick: () => createEvent(name.value.trim(), roster && roster.value, format.value, names.value) }, 'Create event'),
+    h('div', { class: 'hint tiny', style: { marginTop: '8px' } }, 'For a casual unrated event, just type the names and keep Random pairing. Ratings are optional (add ", 1200" after a name); rating-seeded formats use them when present.'));
 }
 
-async function createEvent(name, rosterId, format) {
-  if (!name) return;
-  const roster = rosters()[rosterId];
-  if (!roster || !roster.students.length) { alert('That roster has no students.'); return; }
-  const tc = store.get('profile.timeClass', 'rapid');
-  clear(host).append(h('h1', {}, 'Tournament'), h('div', { class: 'row section' }, h('span', { class: 'spinner' }), ' Fetching player ratings…'));
-  const players = [];
-  for (const s of roster.students) {
-    let rating = 1000;
-    try { rating = cc.ratingFromStats(await cc.fetchStats(s.username), tc === 'all' ? 'rapid' : tc) || 1000; } catch {}
-    players.push({ id: s.username, name: s.alias || s.username, rating });
+async function createEvent(name, rosterId, format, namesText) {
+  if (!name) { alert('Give the event a name.'); return; }
+  let players = [];
+  const typed = (namesText || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  if (typed.length) {
+    // Type-in players — names only (unrated) or "Name, 1200".
+    players = typed.map((line, i) => {
+      const comma = line.lastIndexOf(',');
+      const rt = comma >= 0 ? parseInt(line.slice(comma + 1), 10) : NaN;
+      const nm = (comma >= 0 && Number.isFinite(rt) ? line.slice(0, comma) : line).trim();
+      return { id: 'p' + (i + 1) + '-' + slug(nm), name: nm, rating: Number.isFinite(rt) ? rt : null, unrated: !Number.isFinite(rt) };
+    }).filter((p) => p.name);
+  } else if (rosterId) {
+    const roster = rosters()[rosterId];
+    if (!roster || !roster.students.length) { alert('That roster has no students.'); return; }
+    const tc = store.get('profile.timeClass', 'rapid');
+    clear(host).append(h('h1', {}, 'Tournament'), h('div', { class: 'row section' }, h('span', { class: 'spinner' }), ' Fetching player ratings…'));
+    for (const s of roster.students) {
+      let rating = null;
+      try { rating = cc.ratingFromStats(await cc.fetchStats(s.username), tc === 'all' ? 'rapid' : tc) || null; } catch { /* offline / no profile */ }
+      players.push({ id: s.username, name: s.alias || s.username, rating, unrated: rating == null });
+    }
   }
+  if (players.length < 2) { alert('Add at least 2 players (one name per line).'); return; }
+  // Pairing engines need a number; unrated players get a neutral seed (matters only for rating-seeded formats).
+  players = players.map((p) => ({ ...p, rating: p.rating == null ? 1000 : p.rating }));
   const baseFormat = format.startsWith('balanced') ? 'balanced' : format;
   const mode = format === 'balanced-mentor' ? 'mentor' : 'fair';
-  const ev = { id: slug(name) + '-' + (players.length), name, rosterId, format: baseFormat, mode, players, rounds: [], createdAt: Date.now() };
+  const ev = { id: slug(name) + '-' + players.length + '-' + (name.length + typed.length), name, rosterId: rosterId || null, format: baseFormat, mode, players, rounds: [], createdAt: Date.now() };
 
-  if (format === 'roundrobin') ev.rounds = roundRobinSchedule(players);
+  if (format === 'random') ev.rounds = [randomPairRound(players, [])];
+  else if (format === 'roundrobin') ev.rounds = roundRobinSchedule(players);
   else if (baseFormat === 'balanced') ev.rounds = [balancedPairs(players, { mode })];
-  else ev.rounds = [swissPairRound(players, [])]; // swiss round 1
+  else ev.rounds = [swissPairRound(players, [])];
 
   saveEvent(ev);
   TS.selected = ev.id;
@@ -116,14 +136,14 @@ function roundCard(ev, round, ri) {
 }
 
 function nextRoundControls(ev) {
-  if (ev.format !== 'swiss') return h('div', {});
+  if (ev.format !== 'swiss' && ev.format !== 'random') return h('div', {});
   const last = ev.rounds[ev.rounds.length - 1];
   const canPair = roundComplete(last) && ev.rounds.length < ev.players.length - 1;
+  const pairFn = ev.format === 'random' ? randomPairRound : swissPairRound;
   const rec = suggestedRounds(ev.players.length);
   return h('div', { class: 'section' },
     h('button', { class: 'btn', disabled: !canPair, onclick: () => {
-      const games = swissPairRound(ev.players, ev.rounds);
-      ev.rounds.push(games); saveEvent(ev); draw();
+      ev.rounds.push(pairFn(ev.players, ev.rounds)); saveEvent(ev); draw();
     } }, `Generate round ${ev.rounds.length + 1}`),
     h('span', { class: 'hint tiny', style: { marginLeft: '10px' } }, !roundComplete(last) ? 'Enter all results to pair the next round.' : `Suggested length: ${rec} rounds.`));
 }
@@ -135,7 +155,7 @@ function standingsTable(ev) {
     h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, 'Player'), h('th', {}, 'Rating'), h('th', {}, 'Score'), h('th', {}, 'Buch (C1)'), h('th', {}, 'SB'))),
       h('tbody', {}, ...st.map((p, i) => h('tr', {},
-        h('td', {}, i + 1), h('td', {}, h('b', {}, p.name)), h('td', {}, p.rating),
+        h('td', {}, i + 1), h('td', {}, h('b', {}, p.name)), h('td', {}, ev.players.find((x) => x.id === p.id)?.unrated ? '—' : p.rating),
         h('td', {}, h('b', {}, p.score)), h('td', {}, round1(p.buchholzCut1)), h('td', {}, round1(p.sonnebornBerger)))))));
 }
 

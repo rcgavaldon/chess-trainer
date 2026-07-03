@@ -172,6 +172,38 @@ export function balancedPairs(players, opts) {
   return games;
 }
 
+// ---- 3b. RANDOM PAIRING (ignores rating — for casual / unrated events) ----
+// Shuffles the field and pairs greedily, preferring not to repeat a matchup, gives one player a bye
+// when the count is odd (never the same player twice), and picks colors at random.
+export function randomPairRound(players, history) {
+  const played = new Set(), byes = new Set();
+  for (const round of history || []) for (const g of round) {
+    if (g.bye) { byes.add(g.bye); continue; }
+    if (g.white && g.black) { played.add(g.white + '|' + g.black); played.add(g.black + '|' + g.white); }
+  }
+  const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  let pool = shuffle(players.slice());
+  const games = [];
+  let bye = null;
+  if (pool.length % 2 === 1) {
+    const cand = pool.filter((p) => !byes.has(p.id));
+    bye = (cand.length ? cand : pool)[0];
+    pool = pool.filter((p) => p.id !== bye.id);
+  }
+  const used = new Set();
+  for (let i = 0; i < pool.length; i++) {
+    if (used.has(pool[i].id)) continue;
+    const rest = pool.slice(i + 1).filter((p) => !used.has(p.id));
+    let partner = rest.find((p) => !played.has(pool[i].id + '|' + p.id)) || rest[0]; // allow a rematch only if forced
+    if (!partner) continue;
+    used.add(pool[i].id); used.add(partner.id);
+    const first = Math.random() < 0.5;
+    games.push({ white: (first ? pool[i] : partner).id, black: (first ? partner : pool[i]).id, result: null });
+  }
+  if (bye) games.push({ bye: bye.id, white: null, black: null, result: 'bye', points: 1 });
+  return games;
+}
+
 // ---- 4. STANDINGS + TIE-BREAKS (Buchholz, Buchholz Cut-1, Sonneborn-Berger) ----
 export function computeStandings(event) {
   const { players, rounds } = event;
