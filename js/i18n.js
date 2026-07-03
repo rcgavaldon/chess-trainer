@@ -30,7 +30,10 @@ function tr(s) {
   return lead + es + trail;
 }
 
-const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE']);
+// Never descend into these — scripts/styles have no UI text, and the chessground board + SVGs churn
+// through hundreds of nodes during analysis/animation (translating them would hammer the main thread).
+const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE', 'SVG', 'CANVAS', 'CG-CONTAINER', 'CG-BOARD', 'PIECE', 'SQUARE', 'COORDS', 'CG-SHAPES']);
+const inBoard = (node) => node.nodeType === 1 && node.closest && node.closest('.cg-wrap, cg-container, cg-board, .board-wrap, .evalbar');
 
 function translateAttrs(el) {
   if (el.nodeType !== 1) return;
@@ -66,18 +69,33 @@ export function translateTree(root) {
 }
 
 let _observer = null;
-// Begin translating: the chrome + current view now, and anything rendered later via a MutationObserver.
+const _queue = new Set();
+let _scheduled = false;
+const idle = window.requestIdleCallback ? (fn) => window.requestIdleCallback(fn, { timeout: 400 })
+  : (fn) => requestAnimationFrame(fn);
+
+function flush() {
+  _scheduled = false;
+  const nodes = [..._queue];
+  _queue.clear();
+  for (const n of nodes) { if (n.isConnected) translateTree(n); }
+}
+function schedule() { if (!_scheduled) { _scheduled = true; idle(flush); } }
+
+// Begin translating: the chrome + current view now, and content rendered later. The observer only
+// watches for ADDED element subtrees (no per-character churn), skips the board, and batches work on
+// idle so a busy, animating app stays responsive in Spanish.
 export function startI18n() {
   if (getLang() !== 'es' || _observer) return;
   translateTree(document.body);
   _observer = new MutationObserver((muts) => {
     for (const m of muts) {
-      if (m.type === 'characterData') { translateText(m.target); continue; }
-      m.addedNodes.forEach((node) => {
-        if (node.nodeType === 1) translateTree(node);
-        else if (node.nodeType === 3) translateText(node);
-      });
+      for (const node of m.addedNodes) {
+        if (node.nodeType === 1) { if (!SKIP.has(node.tagName) && !inBoard(node)) _queue.add(node); }
+        else if (node.nodeType === 3 && node.parentNode && !inBoard(node.parentNode)) _queue.add(node);
+      }
     }
+    if (_queue.size) schedule();
   });
-  _observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  _observer.observe(document.body, { childList: true, subtree: true });
 }
