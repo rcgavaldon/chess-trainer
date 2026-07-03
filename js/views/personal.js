@@ -732,7 +732,25 @@ function renderReview(game, analysis) {
 
   const summaryChips = reviewSummary(game, analysis);
 
+  // Top "entrance" card: a one-sentence recap + tap-to-jump key moments. On mobile it sits above
+  // the board (scroll down to the board view); on desktop it leads the review.
+  const km = keyMoments(analysis);
+  const keyPlies = new Set(km.map((m) => m.ply));
+  const jumpToPly = (ply) => { stepTo(ply); document.getElementById('board')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  const introCard = h('div', { class: 'card section review-intro' },
+    h('div', { class: 'hint tiny intro-eyebrow' }, '📖 What happened'),
+    h('div', { class: 'intro-line' }, gameNarrative(game, analysis)),
+    km.length ? h('div', { class: 'key-moments' },
+      h('div', { class: 'hint tiny', style: { marginBottom: '7px' } }, '⭐ Key moments — tap to jump'),
+      h('div', { class: 'km-row' }, km.map((m) => h('button', {
+        class: 'km-chip', title: `${m.label} · move ${m.moveNumber}`, onclick: () => jumpToPly(m.ply) },
+        h('span', { class: 'km-glyph', style: { color: LABELS[m.label]?.color } }, LABELS[m.label]?.glyph || '•'),
+        ` ${m.moveNumber}${m.color === 'white' ? '.' : '…'} ${m.san}`))),
+    ) : null,
+  );
+
   card.append(
+    introCard,
     accBar,
     summaryChips,
     h('div', { class: 'review section' },
@@ -753,7 +771,7 @@ function renderReview(game, analysis) {
   requestAnimationFrame(() => { syncEvalHeight(); requestAnimationFrame(syncEvalHeight); });
   if (R._evalResize) window.removeEventListener('resize', R._evalResize);
   R._evalResize = syncEvalHeight; window.addEventListener('resize', syncEvalHeight);
-  buildMoveList(moveList, analysis);
+  buildMoveList(moveList, analysis, keyPlies);
   stepTo(0);
   attachKeys();
   mountChat(document.getElementById('review-chat'), { getContext: reviewContext, starter: 'Ask about this move…' });
@@ -769,6 +787,55 @@ function plural(lbl, n) {
   if (lbl.endsWith('y')) return lbl.slice(0, -1) + 'ies';
   return lbl + 's';
 }
+// One-sentence "what happened" recap — heuristic (no API). Anchored on the real result so it can
+// never contradict the score, then names the single turning point (who slipped, and when).
+function gameNarrative(game, analysis) {
+  const plies = analysis.plies || [];
+  const opp = game.opponent || 'your opponent';
+  const res = game.userResult, code = game.userResultCode || '';
+  if (!plies.length) return res === 'win' ? `A win over ${opp}.` : res === 'loss' ? `A loss to ${opp}.` : `A draw with ${opp}.`;
+  const uc = game.userColor;
+  const uwp = (p) => uc === 'white' ? evalToWhitePct(p.evalWhite) : 100 - evalToWhitePct(p.evalWhite);
+  const tagged = plies.map((p, i) => ({ p, i }));
+  const worst = (side) => tagged.filter((x) => (x.p.color === uc) === side)
+    .reduce((a, b) => (b.p.winLoss || 0) > (a ? a.p.winLoss || 0 : 0) ? b : a, null);
+  const myWorst = worst(true), oppWorst = worst(false);
+  const isBig = (x) => x && ['Blunder', 'Mistake'].includes(x.p.label) && (x.p.winLoss || 0) >= 12;
+  const standBefore = (x) => { const wp = x.i === 0 ? 50 : uwp(plies[x.i - 1]); return wp >= 62 ? 'ahead' : wp <= 38 ? 'behind' : 'even'; };
+  const wps = plies.map(uwp), peak = Math.max(...wps), trough = Math.min(...wps);
+
+  if (code === 'timeout') return res === 'loss'
+    ? `The clock, not the board, decided this one — you ran out of time.`
+    : `You won on time when ${opp}'s clock ran out.`;
+  if (res === 'draw') return ((myWorst?.p.winLoss || 0) >= 15 || (oppWorst?.p.winLoss || 0) >= 15)
+    ? `A back-and-forth fight with chances both ways that settled into a draw.`
+    : `A balanced, even game that ended in a draw with no decisive mistakes.`;
+  if (res === 'loss') {
+    if (isBig(myWorst)) {
+      const s = standBefore(myWorst), word = myWorst.p.label.toLowerCase(), n = myWorst.p.moveNumber;
+      return s === 'ahead' ? `You were winning until your ${word} on move ${n} handed ${opp} the game.`
+        : s === 'behind' ? `Already under pressure, your ${word} on move ${n} ended the comeback.`
+        : `You were right in it until your ${word} on move ${n} handed ${opp} the game.`;
+    }
+    return peak >= 60 ? `You had your chances, but ${opp} slowly outplayed you and ground it out.`
+      : `${opp} took charge early and never let go — a tough one.`;
+  }
+  // win
+  if (isBig(oppWorst)) return `You stayed patient and pounced when ${opp} slipped on move ${oppWorst.p.moveNumber}, converting the lead to win.`;
+  return trough <= 40 ? `A hard-fought win — you weathered real pressure and turned it around at the end.`
+    : `A clean, controlled win — you built an edge early and never let ${opp} back in.`;
+}
+
+// The handful of moves that decided (or defined) the game — biggest win-chance swings plus any
+// standout finds — in move order, each tappable to jump there.
+function keyMoments(analysis) {
+  const NOTE = new Set(['Blunder', 'Mistake', 'Brilliant', 'Great', 'Miss']);
+  const bonus = (l) => l === 'Brilliant' ? 45 : l === 'Great' ? 35 : l === 'Blunder' ? 10 : l === 'Mistake' ? 4 : 0;
+  return (analysis.plies || []).map((p, i) => ({ ...p, ply: i + 1 })).filter((p) => NOTE.has(p.label))
+    .sort((a, b) => ((b.winLoss || 0) + bonus(b.label)) - ((a.winLoss || 0) + bonus(a.label)))
+    .slice(0, 5).sort((a, b) => a.ply - b.ply);
+}
+
 function reviewSummary(game, analysis) {
   const mine = analysis.plies.filter((p) => p.color === game.userColor);
   const count = (lbl) => mine.filter((p) => p.label === lbl).length;
@@ -777,12 +844,13 @@ function reviewSummary(game, analysis) {
     ['Brilliant', 'Great', 'Best', 'Excellent', 'Good', 'Inaccuracy', 'Miss', 'Mistake', 'Blunder'].map(chip));
 }
 
-function buildMoveList(el, analysis) {
+function buildMoveList(el, analysis, keyPlies) {
   clear(el);
   let line = null;
   analysis.plies.forEach((p, i) => {
     if (p.color === 'white') { line = h('span'); el.append(h('span', { class: 'moveno' }, p.moveNumber + '.'), line, ' '); }
-    const span = h('span', { class: 'ply', 'data-ply': i + 1, onclick: () => stepTo(i + 1) },
+    const isKey = keyPlies && keyPlies.has(i + 1);
+    const span = h('span', { class: 'ply' + (isKey ? ' key' : ''), 'data-ply': i + 1, onclick: () => stepTo(i + 1) },
       p.san, h('span', { class: 'glyph', style: { color: LABELS[p.label]?.color } }, LABELS[p.label]?.glyph || ''));
     if (p.color === 'white') line.append(span);
     else el.append(span, ' ');

@@ -177,6 +177,20 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .movelist .ply:hover { background: var(--elevated); }
 .movelist .ply.active { background: var(--accent-2); color: #07101f; font-weight: 700; }
 .movelist .moveno { color: var(--faint); font-size: 12px; margin: 0 2px 0 7px; font-family: var(--mono); }
+/* key moments glow gold in the move list (still clickable to jump) */
+.movelist .ply.key { background: linear-gradient(180deg, rgba(228, 179, 58, .22), rgba(228, 179, 58, .10)); box-shadow: inset 0 0 0 1px rgba(212, 165, 58, .55); font-weight: 700; }
+.movelist .ply.key.active { background: var(--accent-2); box-shadow: none; }
+
+/* game-review "what happened" entrance card + tap-to-jump key moments */
+.review-intro .intro-eyebrow { color: var(--accent-2); font-weight: 700; }
+.review-intro .intro-line { font-size: 15.5px; line-height: 1.5; font-weight: 500; margin-top: 5px; }
+.review-intro .key-moments { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 11px; }
+.km-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.km-chip { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text);
+  padding: 7px 13px; border-radius: 20px; border: 1px solid rgba(212, 165, 58, .5);
+  background: linear-gradient(180deg, rgba(228, 179, 58, .16), rgba(228, 179, 58, .06)); transition: transform .12s, border-color .12s, box-shadow .12s; }
+.km-chip:hover { transform: translateY(-1px); border-color: rgba(228, 179, 58, .9); box-shadow: 0 3px 10px rgba(228, 179, 58, .18); }
+.km-chip .km-glyph { font-weight: 800; }
 .glyph { font-size: 11px; font-weight: 800; }
 
 .accbar { display: flex; gap: 26px; align-items: center; }
@@ -413,10 +427,11 @@ details.more > summary:hover { color: var(--text); }
      together at the top; push the accuracy bar, move-quality summary, move list and eval graph
      below. Pure CSS reorder — the DOM (and desktop layout) is untouched. --- */
   #review-card { display: flex; flex-direction: column; gap: 12px; }
+  #review-card > .review-intro { order: 0; }              /* "what happened" + key moments at the very top */
   #review-card > .review { order: 1; margin-top: 0; }   /* board + controls + explanation + coach */
   #review-card > .accbar { order: 2; }                    /* accuracy numbers */
   #review-card > .chip-row { order: 3; }                  /* move-quality summary */
-  #review-card > :not(.review):not(.accbar):not(.chip-row) { order: 4; } /* eval graph last */
+  #review-card > :not(.review):not(.accbar):not(.chip-row):not(.review-intro) { order: 4; } /* eval graph last */
   .review .sidebar { display: flex; flex-direction: column; gap: 10px; }
   .review .sidebar #movelist { order: 10; max-height: 168px; overflow-y: auto; } /* move list at the bottom, self-scrolling */
 
