@@ -243,3 +243,44 @@ export function computeStandings(event) {
 export function suggestedRounds(n) {
   return Math.max(3, Math.min(n - 1, Math.ceil(Math.log2(Math.max(2, n))) + 1));
 }
+
+// ---- 5. SINGLE-ELIMINATION BRACKET (knockout) ----
+// Standard bracket seed order for a power-of-2 size (1 meets the lowest seed, etc.).
+function seedOrder(size) {
+  let seeds = [1];
+  while (seeds.length < size) {
+    const sum = seeds.length * 2 + 1;
+    const next = [];
+    for (const s of seeds) { next.push(s); next.push(sum - s); }
+    seeds = next;
+  }
+  return seeds;
+}
+// Build round 1 of a knockout from a field. Seeded by rating (desc); the field is padded to the next
+// power of two with byes that auto-advance the top seeds. Returns [[match,...]] (one round so far).
+// A match = { a, b, winner, result }  (a/b are player ids or null for a bye slot).
+export function knockoutBracket(players) {
+  const seeds = players.slice().sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  let size = 1; while (size < seeds.length) size *= 2;
+  const slots = seedOrder(size).map((s) => seeds[s - 1] || null);
+  const round1 = [];
+  for (let i = 0; i < slots.length; i += 2) {
+    const a = slots[i], b = slots[i + 1];
+    const m = { a: a ? a.id : null, b: b ? b.id : null, winner: null, result: null };
+    if (a && !b) { m.winner = a.id; m.result = 'bye'; }
+    else if (b && !a) { m.winner = b.id; m.result = 'bye'; }
+    round1.push(m);
+  }
+  return [round1];
+}
+// Next knockout round from the winners of the last one, or null if it isn't complete / it's the final.
+export function nextBracketRound(bracket) {
+  const last = bracket[bracket.length - 1];
+  if (!last || last.length <= 1) return null;          // final already played
+  if (!last.every((m) => m.winner)) return null;        // current round unfinished
+  const next = [];
+  for (let i = 0; i < last.length; i += 2) {
+    next.push({ a: last[i].winner || null, b: last[i + 1] ? (last[i + 1].winner || null) : null, winner: null, result: null });
+  }
+  return next;
+}

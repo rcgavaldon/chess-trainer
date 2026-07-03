@@ -512,3 +512,46 @@ details.more > summary:hover { color: var(--text); }
   /* --- toasts respect the bottom bar --- */
   .engine-status { bottom: calc(84px + env(safe-area-inset-bottom)); right: 12px; left: 12px; max-width: none; }
 }
+
+/* ---- knockout bracket ---- */
+.ko-bracket { display: flex; gap: 24px; overflow-x: auto; padding: 8px 2px 14px; -webkit-overflow-scrolling: touch; }
+.ko-col { display: flex; flex-direction: column; min-width: 172px; }
+.ko-round-name { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; text-align: center; }
+.ko-col-body { display: flex; flex-direction: column; justify-content: space-around; flex: 1; gap: 16px; }
+.ko-match { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-sm); }
+.ko-slot { padding: 10px 12px; font-size: 14px; font-weight: 600; cursor: pointer; border-bottom: 1px solid var(--line); transition: background .12s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ko-slot:last-child { border-bottom: none; }
+.ko-slot:hover { background: var(--elevated); }
+.ko-slot.win { background: rgba(125, 211, 95, .16); color: var(--accent); font-weight: 800; }
+.ko-slot.out { color: var(--faint); text-decoration: line-through; }
+.ko-slot.tbd { color: var(--faint); font-style: italic; cursor: default; }
+.ko-slot.tbd:hover { background: transparent; }
+.ko-champ { font-size: 18px; margin-bottom: 14px; padding: 12px 16px; border-radius: 12px; background: rgba(125, 211, 95, .1); border: 1px solid rgba(125, 211, 95, .3); }
+
+/* ---- present / projector overlay ---- */
+.present-overlay { position: fixed; inset: 0; z-index: 200; background: var(--bg); display: flex; flex-direction: column; overflow: auto; }
+.present-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 28px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); }
+.present-title { font-size: 28px; font-weight: 800; }
+.present-body { flex: 1; padding: 28px 40px; }
+.present-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+.present-h { font-size: 22px; font-weight: 800; color: var(--accent-2); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
+.present-pair { display: flex; align-items: center; gap: 16px; font-size: 26px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.present-pair.bye { color: var(--muted); }
+.present-bd { font-family: var(--mono); color: var(--muted); font-size: 20px; min-width: 34px; }
+.present-vs { color: var(--muted); font-size: 20px; }
+.present-rank { display: flex; justify-content: space-between; font-size: 24px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.present-body .ko-bracket { gap: 40px; }
+.present-body .ko-col { min-width: 230px; }
+.present-body .ko-slot { font-size: 21px; padding: 15px 20px; }
+.present-body .ko-round-name { font-size: 15px; }
+.present-body .ko-champ { font-size: 30px; }
+
+@media (max-width: 720px) {
+  .present-cols { grid-template-columns: 1fr; gap: 28px; }
+  .present-title { font-size: 20px; }
+  .present-pair { font-size: 20px; gap: 10px; }
+  .present-h { font-size: 18px; }
+  .present-rank { font-size: 19px; }
+  .present-body { padding: 18px 18px 60px; }
+  .present-bar { padding: 14px 18px; }
+}

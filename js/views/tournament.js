@@ -4,7 +4,7 @@
 import { h, clear } from '../dom.js';
 import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
-import { swissPairRound, roundRobinSchedule, balancedPairs, randomPairRound, computeStandings, suggestedRounds } from '../pairing.js';
+import { swissPairRound, roundRobinSchedule, balancedPairs, randomPairRound, knockoutBracket, nextBracketRound, computeStandings, suggestedRounds } from '../pairing.js';
 
 const TS = { selected: null };
 let CTX = null, host = null;
@@ -48,6 +48,7 @@ function createForm() {
   const roster = ids.length ? h('select', {}, h('option', { value: '' }, '— or pull a class roster —'), ...ids.map((id) => h('option', { value: id }, rs[id].name))) : null;
   const format = h('select', {},
     h('option', { value: 'random' }, 'Random pairing (unrated-friendly)'),
+    h('option', { value: 'knockout' }, 'Knockout bracket (single elimination)'),
     h('option', { value: 'swiss' }, 'Swiss (multi-round, rating-seeded)'),
     h('option', { value: 'roundrobin' }, 'Round robin (all play all)'),
     h('option', { value: 'balanced-fair' }, 'Single round — fair (similar strength)'),
@@ -92,7 +93,8 @@ async function createEvent(name, rosterId, format, namesText) {
   const mode = format === 'balanced-mentor' ? 'mentor' : 'fair';
   const ev = { id: slug(name) + '-' + players.length + '-' + (name.length + typed.length), name, rosterId: rosterId || null, format: baseFormat, mode, players, rounds: [], createdAt: Date.now() };
 
-  if (format === 'random') ev.rounds = [randomPairRound(players, [])];
+  if (format === 'knockout') ev.bracket = knockoutBracket(players);
+  else if (format === 'random') ev.rounds = [randomPairRound(players, [])];
   else if (format === 'roundrobin') ev.rounds = roundRobinSchedule(players);
   else if (baseFormat === 'balanced') ev.rounds = [balancedPairs(players, { mode })];
   else ev.rounds = [swissPairRound(players, [])];
@@ -102,16 +104,91 @@ async function createEvent(name, rosterId, format, namesText) {
   draw();
 }
 
+function fmtFormat(ev) {
+  return ev.format === 'knockout' ? 'knockout bracket' : ev.format === 'random' ? 'random pairing'
+    : ev.format === 'balanced' ? `single round (${ev.mode})` : ev.format;
+}
+
 function drawEvent(ev) {
+  const isKO = ev.format === 'knockout';
   host.append(
-    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' } },
       h('button', { class: 'btn ghost small', onclick: () => { TS.selected = null; draw(); } }, '← All events'),
-      h('button', { class: 'btn ghost small', onclick: () => window.print() }, '🖨 Print')),
-    h('h2', { style: { marginTop: '12px' } }, ev.name, ' ', h('span', { class: 'hint' }, `· ${ev.format}${ev.format === 'balanced' ? ' (' + ev.mode + ')' : ''}`)),
-    standingsTable(ev),
-    ...ev.rounds.map((round, ri) => roundCard(ev, round, ri)),
-    nextRoundControls(ev),
+      h('div', { class: 'row', style: { gap: '8px' } },
+        h('button', { class: 'btn small', onclick: () => presentEvent(ev) }, '📽 Present'),
+        h('button', { class: 'btn ghost small', onclick: () => window.print() }, '🖨 Print'))),
+    h('h2', { style: { marginTop: '12px' } }, ev.name, ' ', h('span', { class: 'hint' }, `· ${fmtFormat(ev)} · ${ev.players.length} players`)),
+    isKO
+      ? bracketView(ev, false)
+      : h('div', {}, standingsTable(ev), ...ev.rounds.map((round, ri) => roundCard(ev, round, ri)), nextRoundControls(ev)),
   );
+}
+
+// ============================ knockout bracket ============================
+function koRounds(ev) { return Math.round(Math.log2(Math.max(1, ev.bracket[0].length))) + 1; }
+function koRoundName(ri, total) {
+  const fromEnd = total - ri;
+  return fromEnd === 1 ? 'Final' : fromEnd === 2 ? 'Semifinals' : fromEnd === 3 ? 'Quarterfinals' : `Round ${ri + 1}`;
+}
+// Generate as many further rounds as the results so far allow (byes auto-advance).
+function ensureBracketRounds(ev) {
+  let guard = 0;
+  while (guard++ < 20) { const next = nextBracketRound(ev.bracket); if (!next) break; ev.bracket.push(next); }
+}
+function setKOWinner(ev, m, id) {
+  if (m.result === 'bye') return;
+  m.winner = id; m.result = 'decided';
+  // a changed result invalidates later rounds — rebuild them from this round forward
+  const ri = ev.bracket.findIndex((round) => round.includes(m));
+  if (ri >= 0) ev.bracket = ev.bracket.slice(0, ri + 1);
+  ensureBracketRounds(ev);
+  saveEvent(ev); draw();
+}
+function koSlot(ev, m, id, readOnly) {
+  const isWin = m.winner && m.winner === id;
+  return h('div', {
+    class: 'ko-slot' + (isWin ? ' win' : '') + (!id ? ' tbd' : '') + (m.winner && !isWin ? ' out' : ''),
+    onclick: (!readOnly && id && m.result !== 'bye') ? () => setKOWinner(ev, m, id) : undefined,
+  }, id ? nameOf(ev, id) : (m.result === 'bye' ? '— bye —' : 'TBD'));
+}
+function bracketView(ev, readOnly) {
+  if (!ev.bracket) ev.bracket = [[]];
+  ensureBracketRounds(ev);
+  const total = koRounds(ev);
+  const last = ev.bracket[ev.bracket.length - 1];
+  const champ = (last.length === 1 && last[0].winner) ? last[0].winner : null;
+  const cols = ev.bracket.map((round, ri) => h('div', { class: 'ko-col' },
+    h('div', { class: 'ko-round-name' }, koRoundName(ri, total)),
+    h('div', { class: 'ko-col-body' }, ...round.map((m) => h('div', { class: 'ko-match' }, koSlot(ev, m, m.a, readOnly), koSlot(ev, m, m.b, readOnly))))));
+  return h('div', {},
+    champ ? h('div', { class: 'ko-champ' }, '🏆 ', h('b', {}, nameOf(ev, champ)), ' wins the bracket!') : (readOnly ? null : h('div', { class: 'hint tiny', style: { marginBottom: '8px' } }, 'Tap the winner of each match — they advance automatically.')),
+    h('div', { class: 'ko-bracket' }, ...cols));
+}
+
+// ============================ Present / projector mode ============================
+function presentEvent(ev) {
+  const overlay = h('div', { class: 'present-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.append(
+    h('div', { class: 'present-bar' },
+      h('div', { class: 'present-title' }, ev.name),
+      h('button', { class: 'btn small ghost', onclick: close }, '✕ Close')),
+    h('div', { class: 'present-body' }, ev.format === 'knockout' ? bracketView(ev, true) : presentPairings(ev)));
+  document.body.append(overlay);
+  if (overlay.requestFullscreen) overlay.requestFullscreen().catch(() => {});
+}
+function presentPairings(ev) {
+  const ri = ev.rounds.length;
+  const last = ev.rounds[ri - 1] || [];
+  return h('div', { class: 'present-cols' },
+    h('div', {}, h('div', { class: 'present-h' }, `Round ${ri} — pairings`),
+      ...last.map((g, i) => g.bye
+        ? h('div', { class: 'present-pair bye' }, h('b', {}, nameOf(ev, g.bye)), h('span', { class: 'present-vs' }, 'bye'))
+        : h('div', { class: 'present-pair' }, h('span', { class: 'present-bd' }, i + 1), h('b', {}, nameOf(ev, g.white)), h('span', { class: 'present-vs' }, 'vs'), h('b', {}, nameOf(ev, g.black))))),
+    h('div', {}, h('div', { class: 'present-h' }, 'Standings'),
+      ...computeStandings(ev).slice(0, 20).map((p, i) => h('div', { class: 'present-rank' }, h('span', {}, `${i + 1}. ${p.name}`), h('b', {}, p.score)))));
 }
 
 function roundComplete(round) { return round.every((g) => g.bye || (g.result && g.result !== 'bye')); }
