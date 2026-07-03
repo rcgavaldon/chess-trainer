@@ -8,7 +8,7 @@ import * as cc from '../chesscom.js';
 import * as personal from './personal.js';
 import { ingestLadder } from '../ladder.js';
 import { tiltSignals } from '../tilt.js';
-import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots, fetchAttempts } from '../cloud.js';
+import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots, fetchAttempts, publishUscfId } from '../cloud.js';
 import { focusAreas } from '../report.js';
 import { Chess } from 'chess.js';
 import { mountPuzzle } from '../puzzleplay.js';
@@ -186,10 +186,34 @@ function renderDigest(x, d) {
       d.whiteRate != null ? stat('as White', `${d.whiteRate}%`) : null,
       d.blackRate != null ? stat('as Black', `${d.blackRate}%`) : null),
     needBlock(d),
+    uscfSection(x),
     h('div', { class: 'row', style: { marginTop: '10px', gap: '8px', flexWrap: 'wrap' } },
       h('button', { class: 'btn small', onclick: stopped(() => reviewPuzzleHistory(x.username, nameOf(x))) }, '🧩 Puzzle history'),
       h('button', { class: 'btn ghost small', onclick: stopped(() => { personal.requestImport(x.username); CTX.navigate('personal'); }) }, 'Full report →'),
       h('button', { class: 'btn ghost small', onclick: stopped((e) => copy(studentLink({ u: x.username, name: x.name, g: x.group_id }, getRoster().coach), e.currentTarget, '✓ Link')) }, '🔗 Student link')));
+}
+
+// US Chess tournament history inside the coach's student digest. Auto-loads from the weekly cache
+// when the student has an ID on their cloud row; otherwise the coach can set it right here.
+function uscfSection(x) {
+  const wrap = h('div', { style: { marginTop: '10px' }, onclick: (e) => e.stopPropagation() });
+  if (x.uscf_id) {
+    const card = personal.uscfCard(x.uscf_id);
+    if (card) { card.classList.remove('section'); card.style.marginTop = '6px'; wrap.append(card); }
+    return wrap;
+  }
+  const input = h('input', { type: 'text', inputmode: 'numeric', placeholder: 'US Chess ID (8–9 digits)', style: { maxWidth: '210px' } });
+  wrap.append(h('div', { class: 'row', style: { gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+    h('span', { class: 'hint tiny' }, '🏅 Tournaments:'),
+    input,
+    h('button', { class: 'btn ghost small', onclick: async (e) => {
+      const id = input.value.trim();
+      if (!/^\d{8,9}$/.test(id)) { input.focus(); return; }
+      e.currentTarget.textContent = 'Saving…';
+      await publishUscfId(x.username, id);
+      x.uscf_id = id; CS.lbRows = null; draw();
+    } }, 'Save ID')));
+  return wrap;
 }
 
 // ============================ a student's puzzle history (solved + missed) on the board ============================

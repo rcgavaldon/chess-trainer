@@ -19,6 +19,7 @@ import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, r
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
 import { coachEnabled } from '../coach.js';
+import { fetchUscfHistory, crosstableUrl, uscfAvailable, validUscfId } from '../uscf.js';
 import { mountChat } from '../chatcoach.js';
 import { createBoard, syncBoard, legalDests, evalToWhitePct, evalText, showArrow } from '../board.js';
 import { LABELS } from '../analysis.js';
@@ -216,6 +217,7 @@ async function drawReport() {
         onGo: (f) => trainFocus(f),
       });
       area.append(progressCard(S.username));
+      const uc = uscfCard(); if (uc) area.append(uc);
       area.append(gamesDetails(), breakdownDetails(analyses, myGames));
     }
     // First-run reveal: the 60-second "your chess, decoded" intro, ONCE. Guard against a re-render
@@ -395,6 +397,7 @@ function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints
       h('div', { class: 'hint' }, `Your ${dimName(pd.mostImproved.key)} is up +${pd.mostImproved.delta} lately${pd.ratingDelta != null ? `, and your rating ${pd.ratingDelta >= 0 ? '+' : ''}${pd.ratingDelta}` : ''}. Keep it going!`)));
   }
   renderBadges(area, badgeData(myGames, eloPoints));
+  const uc = uscfCard(); if (uc) area.append(uc);
   area.append(gamesDetails());
 }
 
@@ -794,6 +797,64 @@ function renderReview(game, analysis) {
   stepTo(0);
   attachKeys();
   mountChat(document.getElementById('review-chat'), { getContext: reviewContext, starter: 'Ask about this move…' });
+}
+
+// ---------------- US Chess tournament history (optional, via profile.uscfId) ----------------
+function fmtUscfDate(d) { try { return new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' }); } catch { return d; } }
+function uscfDelta(s) { return (s.pre != null && s.post != null) ? s.post - s.pre : null; }
+
+export function uscfCard(uscfId) {
+  const id = String(uscfId || store.get('profile.uscfId', '')).trim();
+  if (!uscfAvailable() || !validUscfId(id)) return null;
+  const body = h('div', { class: 'hint tiny' }, 'Loading tournaments…');
+  const refresh = h('button', { class: 'btn ghost small', onclick: () => load(true) }, '↻ Refresh');
+  const card = h('div', { class: 'card section' },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center' } },
+      h('h2', { style: { margin: 0 } }, '🏅 US Chess tournaments'), refresh),
+    body);
+
+  function eventRow(ev) {
+    const main = ev.sections[0] || {};
+    const d = uscfDelta(main);
+    const chip = d == null ? null : h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, color: d >= 0 ? 'var(--good)' : 'var(--bad)' } }, (d >= 0 ? '+' : '') + d);
+    const detail = h('div', { class: 'hint tiny', style: { display: 'none', marginTop: '8px', paddingLeft: '2px' } },
+      ...ev.sections.map((s) => h('div', { style: { padding: '3px 0' } },
+        `${s.name || 'Section'}${s.system ? ' · ' + s.system : ''}: `,
+        s.pre != null ? h('b', {}, `${s.pre} → ${s.post}`) : '(unrated section)',
+        uscfDelta(s) != null ? h('span', { style: { color: uscfDelta(s) >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 700 } }, `  ${uscfDelta(s) >= 0 ? '+' : ''}${uscfDelta(s)}`) : null)),
+      ev.id ? h('div', { style: { marginTop: '6px' } }, h('a', { href: crosstableUrl(ev.id), target: '_blank', rel: 'noopener' }, 'Full crosstable ↗')) : null);
+    return h('div', { style: { padding: '10px 0', borderTop: '1px solid var(--line)', cursor: 'pointer' },
+      onclick: () => { detail.style.display = detail.style.display === 'none' ? 'block' : 'none'; } },
+      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' } },
+        h('div', { style: { minWidth: 0 } },
+          h('b', {}, ev.name),
+          h('div', { class: 'hint tiny' }, [fmtUscfDate(ev.endDate), ev.place].filter(Boolean).join(' · '))),
+        chip),
+      detail);
+  }
+
+  async function load(force) {
+    refresh.disabled = true;
+    clear(body).append(h('span', { class: 'spinner' }), ' Loading tournaments…');
+    try {
+      const data = await fetchUscfHistory(id, { force });
+      clear(body);
+      if (!data.events.length) { body.append(h('div', { class: 'hint' }, 'No rated tournaments on record yet — they\'ll show up here after your first one.')); return; }
+      const reg = data.member.ratings.find((r) => r.system === 'R');
+      body.append(h('div', { class: 'hint tiny', style: { marginBottom: '4px' } },
+        `${data.events.length} events on record${reg ? ` · current regular rating ${reg.rating}` : ''} · tap one for details`));
+      const list = h('div', {});
+      const renderN = (n) => {
+        clear(list).append(...data.events.slice(0, n).map(eventRow));
+        if (data.events.length > n) list.append(h('button', { class: 'btn ghost small', style: { marginTop: '8px' }, onclick: () => renderN(data.events.length) }, `Show all ${data.events.length} →`));
+      };
+      renderN(8);
+      body.append(list);
+    } catch (e) { clear(body).append(h('div', { class: 'hint' }, '⚠ ' + e.message)); }
+    finally { refresh.disabled = false; }
+  }
+  load(false);
+  return card;
 }
 
 function accSide(name, v) {

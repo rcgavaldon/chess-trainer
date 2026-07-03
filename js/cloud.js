@@ -40,12 +40,17 @@ export function fetchStudents({ coach, group } = {}) {
   return rest(q);
 }
 function normalizeStudent(s) {
-  return {
+  const row = {
     username: (s.username || s.u || '').toLowerCase(), name: s.name || s.u || '',
     group_id: s.group_id || s.g || 'ms', coach: (s.coach || '').toLowerCase(), role: s.role || 'student',
     ladder_rating: s.ladder_rating ?? null, chesscom_rating: s.chesscom_rating ?? null,
-    uscf_id: s.uscf_id ?? null, uscf_rating: s.uscf_rating ?? null, updated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
+  // Only include USCF fields when the caller actually has them — merge-upserts REPLACE provided
+  // columns, so sending null here would wipe an ID a student/coach saved from another device.
+  if (s.uscf_id != null) row.uscf_id = s.uscf_id;
+  if (s.uscf_rating != null) row.uscf_rating = s.uscf_rating;
+  return row;
 }
 
 // ---- puzzle rating (adaptive, per player) ----
@@ -55,6 +60,10 @@ function normalizeStudent(s) {
 //   alter table public.students add column if not exists puzzle_rating int;
 export const publishPuzzleRating = (username, rating) =>
   rest('students?on_conflict=username', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [{ username: (username || '').toLowerCase(), puzzle_rating: Math.round(rating) }] }).catch(() => {});
+
+// Merge the player's US Chess ID onto their roster row so coaches can pull tournament history.
+export const publishUscfId = (username, uscfId) =>
+  rest('students?on_conflict=username', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [{ username: (username || '').toLowerCase(), uscf_id: uscfId || null }] }).catch(() => {});
 
 // ---- puzzle attempt log (every puzzle done by everyone; coaches review the misses) ----
 // Requires table puzzle_attempts (see supabase_schema.sql). Best-effort — swallows errors so a

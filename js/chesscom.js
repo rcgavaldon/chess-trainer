@@ -2,6 +2,11 @@
 // api.chess.com sends Access-Control-Allow-Origin: * so fetch() works directly
 // from a GitHub Pages origin with no proxy. Keep requests SERIAL (await each)
 // to stay in the unlimited-rate lane; parallel bursts can earn a 429.
+//
+// LICHESS: a username entered as  lichess:TheirName  routes to lichess.js instead — same
+// normalized game/stats shapes, so every caller of fetchStats/fetchRecentGames just works.
+
+import { isLichess, lichessName, fetchLichessStats, fetchLichessGames } from './lichess.js';
 
 const API = 'https://api.chess.com/pub';
 
@@ -32,10 +37,12 @@ async function fetchJSON(url) {
 }
 
 export async function fetchProfile(username) {
+  if (isLichess(username)) { const s = await fetchLichessStats(username); return s ? { username: 'lichess:' + lichessName(username) } : null; }
   return fetchJSON(`${API}/player/${encodeURIComponent(String(username).toLowerCase())}`);
 }
 
 export async function fetchStats(username) {
+  if (isLichess(username)) return fetchLichessStats(username);
   return fetchJSON(`${API}/player/${encodeURIComponent(String(username).toLowerCase())}/stats`);
 }
 
@@ -58,6 +65,7 @@ export function ratingFromStats(stats, timeClass = 'rapid') {
 //   onProgress: ({done,total,phase}) => void
 // Returns normalized game objects.
 export async function fetchRecentGames(username, { months = 6, timeClass = 'all', limit = 50, onProgress } = {}) {
+  if (isLichess(username)) return fetchLichessGames(username, { timeClass, limit, onProgress });
   const user = String(username).trim();
   const arch = await fetchJSON(`${API}/player/${encodeURIComponent(user.toLowerCase())}/games/archives`);
   if (!arch || !arch.archives || !arch.archives.length) return [];
@@ -109,7 +117,8 @@ export function parseClocks(pgn, timeControl) {
     const p = s.split(':').map(Number);
     return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1];
   };
-  const clks = [...pgn.matchAll(/\{\[%clk\s+([0-9:.]+)\]\}/g)].map((m) => toSec(m[1]));
+  // tolerate both Chess.com "{[%clk 0:02:59.9]}" and Lichess "{ [%clk 0:03:00] }" comment styles
+  const clks = [...pgn.matchAll(/\{\s*\[%clk\s+([0-9:.]+)\]\s*\}/g)].map((m) => toSec(m[1]));
   if (clks.length < 2) return [];
   const plies = [];
   for (let i = 0; i < clks.length; i++) {

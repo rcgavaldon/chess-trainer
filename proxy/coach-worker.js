@@ -18,6 +18,21 @@ export default {
       'Vary': 'Origin',
     };
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
+
+    // ---- GET /uscf/… — US Chess tournament-history proxy (ratings-api.uschess.org sends no CORS
+    // headers, so the app can't call it directly). Whitelisted paths only, cached at the edge.
+    if (request.method === 'GET') {
+      const m = new URL(request.url).pathname.match(/^\/uscf\/(\d{8,9})(\/(events|sections|game-stats))?$/);
+      if (!m) return json({ error: 'Not found' }, 404, cors);
+      const qs = new URL(request.url).search || '';
+      const upstream = await fetch(`https://ratings-api.uschess.org/api/v1/members/${m[1]}${m[2] || ''}${qs}`, {
+        headers: { Accept: 'application/json', 'User-Agent': 'chess-trainer (rgautomations)' },
+        cf: { cacheTtl: 21600, cacheEverything: true }, // 6h edge cache — history changes slowly
+      });
+      const body = await upstream.text();
+      return new Response(body, { status: upstream.status, headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=21600', ...cors } });
+    }
+
     if (request.method !== 'POST') return json({ error: 'POST only' }, 405, cors);
     // Basic origin allow-list — deters casual abuse from other sites (not spoof-proof; add a
     // Cloudflare Rate Limiting rule for real per-IP protection, see DEPLOY.md).

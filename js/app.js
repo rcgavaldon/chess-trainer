@@ -81,6 +81,7 @@ function openSettings() {
   const p = store.get('profile', {});
   $('set-owner').value = p.ownerName || '';
   $('set-username').value = p.username || '';
+  $('set-uscf').value = p.uscfId || '';
   $('set-timeclass').value = p.timeClass || 'rapid';
   $('set-depth').value = p.engineDepth || 14;
   $('set-depth-val').textContent = (p.engineDepth || 14);
@@ -94,6 +95,12 @@ dlg.addEventListener('close', () => {
   if (dlg.returnValue !== 'save') return;
   store.set('profile.ownerName', $('set-owner').value.trim());
   store.set('profile.username', $('set-username').value.trim());
+  const uscf = $('set-uscf').value.trim();
+  store.set('profile.uscfId', uscf);
+  // share it to the roster row so the coach's Students view can pull their tournament history
+  if (uscf && store.get('profile.username')) {
+    import('./cloud.js').then((c) => c.publishUscfId(store.get('profile.username'), uscf)).catch(() => {});
+  }
   store.set('profile.timeClass', $('set-timeclass').value);
   store.set('profile.engineDepth', parseInt($('set-depth').value, 10));
   store.set('profile.llmKey', $('set-llmkey').value.trim());
@@ -178,7 +185,7 @@ function showOnboarding() {
   clear(v);
   const field = (t, el) => h('label', { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', fontWeight: 500 } }, t, el);
   const name = h('input', { type: 'text', placeholder: 'Your name (e.g. Robert)' });
-  const user = h('input', { type: 'text', placeholder: 'Your Chess.com username (e.g. rcgavaldon)', onkeydown: (e) => { if (e.key === 'Enter') go.click(); } });
+  const user = h('input', { type: 'text', placeholder: 'Chess.com username — or lichess:YourName', onkeydown: (e) => { if (e.key === 'Enter') go.click(); } });
   const key = h('input', { type: 'password', placeholder: 'sk-ant-…  (optional — powers the AI coach)', autocomplete: 'off' });
   let accent = store.get('profile.accent', 'green');
   const accentWrap = h('div', { class: 'swatches' });

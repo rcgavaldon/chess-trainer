@@ -10,6 +10,7 @@ import { MATE_PATTERNS, IDENTIFY_OPTIONS, correctIdentify, basicName } from '../
 import { getPuzzleRating, updatePuzzleRating } from '../puzzlerating.js';
 import { themeLabel, themeHint, whyWrong } from '../puzzlemeta.js';
 import { cloudEnabled, logAttempt } from '../cloud.js';
+import { fetchStats as ccFetchStats } from '../chesscom.js';
 
 // SAN of a UCI move from a FEN (for readable history); '' if it can't be played.
 function sanOfUci(fen, uci) {
@@ -62,7 +63,8 @@ async function getBaseRating() {
 async function refreshBaseRating(u) {
   if (!u) return null;
   try {
-    const s = await fetch(`https://api.chess.com/pub/player/${u}/stats`).then((x) => x.json());
+    // via chesscom.js so lichess: users get their Lichess ratings in the same shape
+    const s = await ccFetchStats(u);
     const peak = Math.max(s.chess_rapid?.best?.rating || 0, s.chess_blitz?.best?.rating || 0, s.chess_rapid?.last?.rating || 0, s.chess_blitz?.last?.rating || 0);
     if (peak) { store.set('profile.peakRating', peak); return peak; }
   } catch { /* offline — fall back to cache/default */ }

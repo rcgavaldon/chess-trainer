@@ -10,6 +10,15 @@ const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'applic
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function chesscomRating(username) {
+  // lichess:Name usernames pull from Lichess instead (same rapid→blitz→bullet preference)
+  if (/^lichess:/i.test(username)) {
+    const name = username.replace(/^lichess:/i, '');
+    const r = await fetch(`https://lichess.org/api/user/${encodeURIComponent(name)}`, { headers: { 'User-Agent': 'chess-trainer-daily (rgautomations)', Accept: 'application/json' } });
+    if (!r.ok) return null;
+    const p = (await r.json()).perfs || {};
+    const pick = (k) => (p[k] && !p[k].prov ? p[k].rating : null);
+    return pick('rapid') ?? pick('blitz') ?? pick('bullet') ?? null;
+  }
   const r = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(username)}/stats`, { headers: { 'User-Agent': 'chess-trainer-daily (rgautomations)' } });
   if (!r.ok) return null;
   const s = await r.json();
