@@ -97,7 +97,7 @@ function lbRow(x, i) {
   },
     h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i + 1),
     h('div', {}, h('b', {}, nameOf(x)), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, GROUP_LABEL[x.group_id] || '')),
-    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rating ?? '—'), h('div', { class: 'hint tiny' }, 'chess.com')),
+    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rating ?? '—'), h('div', { class: 'hint tiny' }, /^lichess:/i.test(x.username || '') ? 'lichess' : 'chess.com')),
     h('span', { class: 'hint tiny' }, open ? '▲' : '▾'));
   if (!open) return row;
   const box = h('div', { class: 'card', style: { margin: '0 14px 14px', background: 'var(--bg-soft)' } }, h('div', { class: 'row' }, h('span', { class: 'spinner' }), ` Loading ${x.name || x.username}…`));
@@ -107,12 +107,14 @@ function lbRow(x, i) {
 
 async function loadDigest(x, box) {
   try {
-    const [games, snaps] = await Promise.all([
+    const [games, snaps, stats] = await Promise.all([
       cc.fetchRecentGames(x.username, { months: 3, timeClass: 'all', limit: 40 }),
       fetchSnapshots(x.username).catch(() => []),
+      cc.fetchStats(x.username).catch(() => null),
     ]);
     const d = studentDigest(games);
     d.focus = dimsFocusFromSnapshots(snaps); // the SAME engine assessment their own report shows, if they've opened it
+    d.best = cc.bestRating(stats); // headline = highest current rating, labeled with control + site
     if (box.isConnected) clear(box).append(renderDigest(x, d));
   } catch { if (box.isConnected) clear(box).append(h('div', { class: 'hint tiny' }, 'Couldn\'t pull this student\'s games right now.')); }
 }
@@ -162,12 +164,12 @@ function needBlock(d) {
     const items = primary.length ? primary : d.focus.slice(0, 2);
     return h('div', {},
       h('div', { style: { fontSize: '13px', marginBottom: '6px' } }, h('b', {}, '📌 What they need '), h('span', { class: 'hint tiny' }, '(from their skill report)')),
-      ...items.map((f) => h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '6px' } },
+      ...items.map((f) => h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '6px', minHeight: '0' } },
         h('b', {}, `${f.icon} ${f.label} `), h('span', { class: 'hint tiny', style: { fontFamily: 'var(--mono)' } }, `${f.score}/100`),
         h('div', { style: { marginTop: '2px' } }, f.why))));
   }
   return h('div', {},
-    ...d.recs.map((rec, i) => h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '8px' } }, i === 0 ? h('b', {}, '📌 What they need: ') : h('b', {}, '• '), rec)),
+    ...d.recs.map((rec, i) => h('div', { class: 'explain-box', style: { fontSize: '13px', marginBottom: '8px', minHeight: '0' } }, i === 0 ? h('b', {}, '📌 What they need: ') : h('b', {}, '• '), rec)),
     h('div', { class: 'hint tiny', style: { marginTop: '2px' } }, 'From recent games — have them open their student link once for the full engine breakdown.'));
 }
 
@@ -176,15 +178,18 @@ function renderDigest(x, d) {
     h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: '18px', color: color || 'var(--text)' } }, val),
     h('div', { class: 'hint tiny' }, label));
   const stopped = (fn) => (e) => { e.stopPropagation(); fn(e); };
+  const best = d.best;
   return h('div', {},
-    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '14px', justifyContent: 'space-around', marginBottom: '12px' } },
-      stat('Rating', d.rating ?? '—'),
+    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '14px', justifyContent: 'space-around', marginBottom: '6px' } },
+      stat(best ? best.label : 'Rating', best ? best.rating : (d.rating ?? '—')),
       x.puzzle_rating != null ? stat('⚡ Puzzles', x.puzzle_rating) : null,
       stat(`Last ${d.count}`, `${d.w}-${d.l}-${d.d}`),
       stat('Win rate', `${d.winRate}%`, d.winRate >= 50 ? 'var(--good)' : 'var(--warn)'),
       d.avgAcc != null ? stat('Accuracy', `${d.avgAcc}%`) : null,
       d.whiteRate != null ? stat('as White', `${d.whiteRate}%`) : null,
       d.blackRate != null ? stat('as Black', `${d.blackRate}%`) : null),
+    best && best.all.length > 1 ? h('div', { class: 'hint tiny', style: { textAlign: 'center', marginBottom: '10px' } },
+      'All ratings: ', best.all.map((r) => `${r.tc} ${r.rating}`).join(' · '), ` (${best.source})`) : null,
     needBlock(d),
     uscfSection(x),
     h('div', { class: 'row', style: { marginTop: '10px', gap: '8px', flexWrap: 'wrap' } },
@@ -360,7 +365,10 @@ async function updateClass(r) {
       const tcg = games.filter((g) => g.timeClass === useTc);
       const form = { w: 0, l: 0, d: 0 };
       for (const g of tcg.slice(0, 15)) { if (g.userResult === 'win') form.w++; else if (g.userResult === 'loss') form.l++; else form.d++; }
-      CS.forms[key] = { rating: (tcg[0] || games[0])?.userRating ?? null, form };
+      // The published rating is the player's HIGHEST current rating (same number the digest +
+      // leaderboard show), not whatever control they happened to play last.
+      const best = cc.bestRating(await cc.fetchStats(s.u).catch(() => null));
+      CS.forms[key] = { rating: best?.rating ?? (tcg[0] || games[0])?.userRating ?? null, form };
       CS.tilt[key] = tiltSignals(games, { rating: (tcg[0] || games[0])?.userRating });
     } catch { CS.forms[key] = { rating: null, form: null }; }
     if (!CS.updating) return;

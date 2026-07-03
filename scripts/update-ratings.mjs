@@ -10,19 +10,21 @@ const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'applic
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function chesscomRating(username) {
-  // lichess:Name usernames pull from Lichess instead (same rapid→blitz→bullet preference)
+  // Publish the HIGHEST current rating across time controls (what the app shows as the headline).
+  // lichess:Name usernames pull from Lichess instead.
   if (/^lichess:/i.test(username)) {
     const name = username.replace(/^lichess:/i, '');
     const r = await fetch(`https://lichess.org/api/user/${encodeURIComponent(name)}`, { headers: { 'User-Agent': 'chess-trainer-daily (rgautomations)', Accept: 'application/json' } });
     if (!r.ok) return null;
     const p = (await r.json()).perfs || {};
-    const pick = (k) => (p[k] && !p[k].prov ? p[k].rating : null);
-    return pick('rapid') ?? pick('blitz') ?? pick('bullet') ?? null;
+    const vals = ['rapid', 'blitz', 'bullet', 'correspondence'].map((k) => (p[k] && !p[k].prov ? p[k].rating : null)).filter((v) => v != null);
+    return vals.length ? Math.max(...vals) : null;
   }
   const r = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(username)}/stats`, { headers: { 'User-Agent': 'chess-trainer-daily (rgautomations)' } });
   if (!r.ok) return null;
   const s = await r.json();
-  return s.chess_rapid?.last?.rating ?? s.chess_blitz?.last?.rating ?? s.chess_bullet?.last?.rating ?? null;
+  const vals = ['chess_rapid', 'chess_blitz', 'chess_bullet', 'chess_daily'].map((k) => s[k]?.last?.rating).filter((v) => typeof v === 'number');
+  return vals.length ? Math.max(...vals) : null;
 }
 
 async function main() {

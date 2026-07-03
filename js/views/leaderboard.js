@@ -49,5 +49,5 @@ function lbRow(x, i, me) {
   return h('div', { style: { display: 'grid', gridTemplateColumns: '34px 1fr auto', gap: '10px', alignItems: 'center', padding: '12px 14px', borderTop: i ? '1px solid var(--line)' : 'none', background: mine ? 'rgba(125, 211, 95, .12)' : 'transparent' } },
     h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i + 1),
     h('div', {}, h('b', {}, nameOf(x)), mine ? h('span', { style: { color: 'var(--accent-2)', fontWeight: 700 } }, ' ← you') : null, h('div', { class: 'hint tiny' }, GROUP_LABEL[x.group_id] || '')),
-    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rateOf(x) ?? '—'), h('div', { class: 'hint tiny' }, 'chess.com')));
+    h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rateOf(x) ?? '—'), h('div', { class: 'hint tiny' }, /^lichess:/i.test(x.username || '') ? 'lichess' : 'chess.com')));
 }

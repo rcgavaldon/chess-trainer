@@ -46,6 +46,24 @@ export async function fetchStats(username) {
   return fetchJSON(`${API}/player/${encodeURIComponent(String(username).toLowerCase())}/stats`);
 }
 
+// The player's HEADLINE rating: their highest current rating across time controls, labeled with
+// where it comes from ("Blitz", "Rapid · Lichess"). One number everywhere; details show the rest.
+export function bestRating(stats) {
+  if (!stats) return null;
+  const controls = [['chess_rapid', 'Rapid'], ['chess_blitz', 'Blitz'], ['chess_bullet', 'Bullet'], ['chess_daily', 'Daily']];
+  let best = null;
+  const all = [];
+  for (const [key, label] of controls) {
+    const r = stats[key]?.last?.rating;
+    if (typeof r !== 'number') continue;
+    all.push({ tc: label, rating: r });
+    if (!best || r > best.rating) best = { rating: r, tc: label };
+  }
+  if (!best) return null;
+  const source = stats.lichess ? 'Lichess' : 'Chess.com';
+  return { ...best, source, label: `${best.tc} · ${source}`, all };
+}
+
 // Convenience: best available rating for a time class, with a sane fallback chain.
 export function ratingFromStats(stats, timeClass = 'rapid') {
   if (!stats) return null;
