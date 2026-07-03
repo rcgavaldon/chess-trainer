@@ -46,13 +46,17 @@ create table if not exists public.puzzle_attempts (
   username  text not null,
   puzzle_id text,
   fen       text,
-  moves     text,
+  moves     text,         -- solution moves (space-separated UCI)
+  tried     text,         -- the move the player actually played on a miss (UCI)
   theme     text,
   solved    boolean,
   rating    int,
   ts        timestamptz default now()
 );
+-- if the table already existed without it:
+alter table public.puzzle_attempts add column if not exists tried text;
 create index if not exists puzzle_attempts_user_solved on public.puzzle_attempts (username, solved, ts desc);
+create index if not exists puzzle_attempts_user_ts on public.puzzle_attempts (username, ts desc);
 alter table public.puzzle_attempts enable row level security;
 drop policy if exists anon_all on public.puzzle_attempts;
 create policy anon_all on public.puzzle_attempts for all using (true) with check (true);

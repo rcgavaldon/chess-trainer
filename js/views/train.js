@@ -11,12 +11,29 @@ import { getPuzzleRating, updatePuzzleRating } from '../puzzlerating.js';
 import { themeLabel, themeHint, whyWrong } from '../puzzlemeta.js';
 import { cloudEnabled, logAttempt } from '../cloud.js';
 
-// Record every puzzle attempt to the shared log so coaches can review a student's misses.
-function logPuzzleAttempt(p, theme, solved) {
+// SAN of a UCI move from a FEN (for readable history); '' if it can't be played.
+function sanOfUci(fen, uci) {
+  if (!uci) return '';
+  try { const c = new Chess(fen); const m = c.move(toMoveObj(uci)); return m ? m.san : ''; } catch { return ''; }
+}
+
+// Record every puzzle attempt: locally (works with no backend — powers the "Past puzzles" list on
+// this device) AND to the shared cloud log (so coaches can pull it up cross-device). `triedUci` is
+// the move the player actually played on a miss, so we can show "you tried X".
+function logPuzzleAttempt(p, theme, solved, triedUci) {
+  const rec = {
+    id: p.id || null, fen: p.fen, solutionMoves: p.solutionMoves || [], theme: theme || null,
+    rating: p.rating || null, playedSan: p.playedSan || null, source: p.source || null,
+    solved: !!solved, triedUci: triedUci || null, tried: sanOfUci(p.fen, triedUci),
+    solutionSan: sanOfUci(p.fen, (p.solutionMoves || [])[0]), ts: Date.now(),
+  };
+  const hist = store.get('puzzles.history', []);
+  hist.unshift(rec);
+  store.set('puzzles.history', hist.slice(0, 80));
   if (!cloudEnabled()) return;
   const u = store.get('profile.username', '');
   if (!u) return;
-  logAttempt({ username: u.toLowerCase(), puzzle_id: p.id || null, fen: p.fen, moves: (p.solutionMoves || []).join(' '), theme: theme || null, solved: !!solved, rating: p.rating || null });
+  logAttempt({ username: u.toLowerCase(), puzzle_id: p.id || null, fen: p.fen, moves: (p.solutionMoves || []).join(' '), tried: triedUci || null, theme: theme || null, solved: !!solved, rating: p.rating || null });
 }
 
 const TR = { _timer: null };
@@ -111,8 +128,65 @@ function drawHome() {
         h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Never-ending fresh puzzles at your own pace.')),
       h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startBlunders },
         h('div', {}, h('b', {}, '🎯 Your blunders')),
-        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Replay your own losing moves as puzzles — find what you missed.'))),
+        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Replay your own losing moves as puzzles — find what you missed.')),
+      pastPuzzlesCard()),
   );
+}
+
+// A card that surfaces the recent puzzle history (solved + missed) with a running tally.
+function pastPuzzlesCard() {
+  const hist = store.get('puzzles.history', []);
+  const solved = hist.filter((r) => r.solved).length, missed = hist.length - solved;
+  return h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: renderHistory },
+    h('div', {}, h('b', {}, '📜 Past puzzles'),
+      hist.length ? h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, `✓ ${solved} · ✗ ${missed}`) : null),
+    h('div', { class: 'hint tiny', style: { marginTop: '4px' } },
+      hist.length ? 'See what you got right and missed — retry any of them.' : 'Your solved & missed puzzles will collect here to retry.'));
+}
+
+// ---------------- Past puzzles: history list (solved + missed), retry any ----------------
+const HIST = { filter: 'all' };
+function renderHistory() {
+  stopTimer(); clear(host);
+  const all = store.get('puzzles.history', []);
+  const shown = all.filter((r) => HIST.filter === 'all' ? true : HIST.filter === 'solved' ? r.solved : !r.solved);
+  const fchip = (key, label) => h('button', { class: 'chip', style: HIST.filter === key ? { background: 'var(--accent)', color: '#0a1e12', fontWeight: 700, borderColor: 'var(--accent)' } : {}, onclick: () => { HIST.filter = key; renderHistory(); } }, label);
+  const solvedN = all.filter((r) => r.solved).length;
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: drawHome }, '← Puzzles'),
+      h('div', { class: 'hint tiny' }, all.length ? `${solvedN} solved · ${all.length - solvedN} missed` : '')),
+    h('h1', { style: { marginTop: '6px' } }, '📜 Past puzzles'),
+    h('p', { class: 'hint' }, 'Every puzzle you\'ve done on this device — what you got right, what you missed (and the move you tried). Tap any one to try it again.'),
+    h('div', { class: 'row', style: { gap: '8px', margin: '4px 0 12px' } }, fchip('all', 'All'), fchip('solved', '✓ Solved'), fchip('missed', '✗ Missed')),
+  );
+  if (!shown.length) {
+    host.append(h('div', { class: 'empty' }, all.length ? 'Nothing in this filter yet.' : 'No puzzles done yet — go train and they\'ll show up here.'));
+    return;
+  }
+  host.append(h('div', { class: 'hist-list' }, ...shown.map(histRow)));
+}
+
+function histRow(rec) {
+  const ok = rec.solved;
+  return h('div', { class: 'hist-row' + (ok ? ' ok' : ' miss') },
+    h('span', { class: 'hist-mark' }, ok ? '✓' : '✗'),
+    h('div', { class: 'hist-main' },
+      h('div', { class: 'hist-top' },
+        h('span', { class: 'hist-theme' }, themeLabel(rec.theme)),
+        rec.rating ? h('span', { class: 'hint tiny' }, `lvl ${rec.rating}`) : null),
+      h('div', { class: 'hint tiny hist-detail' },
+        ok
+          ? (rec.solutionSan ? `Best move: ${rec.solutionSan}` : 'Solved')
+          : [h('span', {}, rec.tried ? `You tried ${rec.tried}` : 'Missed'),
+             rec.solutionSan ? h('span', { style: { color: 'var(--accent)' } }, `  ·  best was ${rec.solutionSan}`) : null])),
+    h('button', { class: 'btn ghost small', onclick: () => retryPuzzle(rec) }, 'Try again →'));
+}
+
+function retryPuzzle(rec) {
+  const p = { id: rec.id, fen: rec.fen, solutionMoves: rec.solutionMoves || [], theme: rec.theme, rating: rec.rating, playedSan: rec.playedSan, source: rec.source };
+  DR.list = [p]; DR.i = 0; DR.theme = rec.theme; DR.label = 'Retry'; DR.onDone = renderHistory; DR.endless = false; DR.solved = 0; DR.attempts = 0; DR.refill = null;
+  drillPuzzle();
 }
 
 function bigCard(title, desc, btn, fn, primary) {
@@ -505,12 +579,12 @@ function drillPuzzle() {
   const explain = h('div', { id: 'drill-explain' });
   const ratingBadge = h('span', { class: 'pill', id: 'pz-rating', style: { fontFamily: 'var(--mono)', fontWeight: 700 } }, `⚡ ${getPuzzleRating()}`);
   const nextBtn = h('button', { class: 'btn small', disabled: true, onclick: () => { DR.i++; if (DR.i >= DR.list.length) { if (DR.endless) return (DR.refill || endlessRefill)(); return (DR.onDone || drawHome)(); } drillPuzzle(); } }, 'Next →');
-  const record = (solved) => {
+  const record = (solved, triedUci) => {
     if (recorded) return; recorded = true;
     DR.attempts++; if (solved) DR.solved++;
     const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} }); recordAttempt(srs, p, { solved }); store.set('puzzles.srs', srs);
     ratingDelta = updatePuzzleRating(p.rating || 1500, solved);
-    logPuzzleAttempt(p, theme, solved);
+    logPuzzleAttempt(p, theme, solved, triedUci);
     const b = document.getElementById('pz-rating'); if (b) b.textContent = `⚡ ${getPuzzleRating()}`;
   };
   const progressLabel = DR.endless ? `${DR.label} · ${DR.solved}/${DR.attempts} solved` : `${DR.label} · ${DR.i + 1} of ${DR.list.length}`;
@@ -545,7 +619,7 @@ function drillPuzzle() {
       nextBtn.disabled = false;
     },
     onWrong: (_p, first, mv) => {
-      if (first) record(false);
+      if (first) record(false, mv && mv.uci);
       const why = (mv && whyWrong(mv.fen, mv.uci, theme)) || `That's not it — ${themeHint(theme).charAt(0).toLowerCase() + themeHint(theme).slice(1)}`;
       status.className = 'puzzle-status no';
       status.textContent = `✗ ${why} Try again.`;

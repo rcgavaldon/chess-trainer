@@ -61,6 +61,8 @@ export const publishPuzzleRating = (username, rating) =>
 // missing table or offline never interrupts training.
 export const logAttempt = (row) => rest('puzzle_attempts', { method: 'POST', prefer: 'return=minimal', body: [row] }).catch(() => {});
 export const fetchMissed = (username, limit = 30) => rest(`puzzle_attempts?select=*&username=eq.${encodeURIComponent((username || '').toLowerCase())}&solved=eq.false&order=ts.desc&limit=${limit}`).catch(() => []);
+// Every attempt (solved AND missed) newest-first — the coach's cross-device puzzle history.
+export const fetchAttempts = (username, limit = 40) => rest(`puzzle_attempts?select=*&username=eq.${encodeURIComponent((username || '').toLowerCase())}&order=ts.desc&limit=${limit}`).catch(() => []);
 export const fetchAttemptCounts = (username) => rest(`puzzle_attempts?select=solved&username=eq.${encodeURIComponent((username || '').toLowerCase())}`).catch(() => []);
 
 // ---- progress snapshots (shared so coaches see trends across devices) ----

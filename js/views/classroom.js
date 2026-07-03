@@ -8,7 +8,7 @@ import * as cc from '../chesscom.js';
 import * as personal from './personal.js';
 import { ingestLadder } from '../ladder.js';
 import { tiltSignals } from '../tilt.js';
-import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots, fetchMissed } from '../cloud.js';
+import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots, fetchAttempts } from '../cloud.js';
 import { focusAreas } from '../report.js';
 import { Chess } from 'chess.js';
 import { mountPuzzle } from '../puzzleplay.js';
@@ -34,7 +34,7 @@ function saveRoster(r) { store.set('class.roster', r); }
 
 // ============================ main view ============================
 function draw() {
-  if (CS.review) return renderMissedPuzzle();
+  if (CS.review) return renderPuzzleHistoryList();
   const r = getRoster();
   clear(host);
   // NOTE: native host.append(null) renders the literal text "null" (unlike our h()); filter first.
@@ -187,50 +187,82 @@ function renderDigest(x, d) {
       d.blackRate != null ? stat('as Black', `${d.blackRate}%`) : null),
     needBlock(d),
     h('div', { class: 'row', style: { marginTop: '10px', gap: '8px', flexWrap: 'wrap' } },
-      h('button', { class: 'btn small', onclick: stopped(() => reviewMissed(x.username, nameOf(x))) }, '🎬 Review missed puzzles'),
+      h('button', { class: 'btn small', onclick: stopped(() => reviewPuzzleHistory(x.username, nameOf(x))) }, '🧩 Puzzle history'),
       h('button', { class: 'btn ghost small', onclick: stopped(() => { personal.requestImport(x.username); CTX.navigate('personal'); }) }, 'Full report →'),
       h('button', { class: 'btn ghost small', onclick: stopped((e) => copy(studentLink({ u: x.username, name: x.name, g: x.group_id }, getRoster().coach), e.currentTarget, '✓ Link')) }, '🔗 Student link')));
 }
 
-// ============================ review a student's missed puzzles on the board ============================
-async function reviewMissed(username, dispName) {
-  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ` Loading ${dispName}'s missed puzzles…`));
-  const rows = await fetchMissed(username, 30);
+// ============================ a student's puzzle history (solved + missed) on the board ============================
+const sanOf = (fen, uci) => {
+  if (!uci) return '';
+  try { const c = new Chess(fen); const m = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4, 5) || undefined }); return m ? m.san : ''; } catch { return ''; }
+};
+
+async function reviewPuzzleHistory(username, dispName) {
+  clear(host).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ` Loading ${dispName}'s puzzle history…`));
+  const rows = await fetchAttempts(username, 40);
   if (!rows || !rows.length) {
-    clear(host).append(h('div', { class: 'empty section' }, `No missed puzzles logged for ${dispName} yet — they appear here once ${dispName} trains in the Puzzles tab.`),
-      h('div', { class: 'row', style: { justifyContent: 'center' } }, h('button', { class: 'btn ghost', onclick: draw }, '← Back to students')));
+    clear(host).append(
+      h('div', { class: 'empty section' }, `No puzzles logged for ${dispName} yet — they appear here once ${dispName} trains in the Puzzles tab.`),
+      h('div', { class: 'hint tiny', style: { textAlign: 'center', marginTop: '8px' } }, 'Cross-device history needs the puzzle_attempts table in Supabase (see supabase_schema.sql).'),
+      h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '10px' } }, h('button', { class: 'btn ghost', onclick: draw }, '← Back to students')));
     return;
   }
-  CS.review = { rows, i: 0, name: dispName };
-  renderMissedPuzzle();
+  CS.review = { rows, name: dispName };
+  renderPuzzleHistoryList();
 }
 
-function renderMissedPuzzle() {
-  const R = CS.review, row = R.rows[R.i];
+// List of every attempt (solved + missed) with the move they tried — tap one to work it on the board.
+function renderPuzzleHistoryList() {
+  const R = CS.review, rows = R.rows;
+  const solved = rows.filter((r) => r.solved).length;
+  clear(host).append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('button', { class: 'btn ghost small', onclick: () => { CS.review = null; draw(); } }, '← Back to students'),
+      h('div', { class: 'hint tiny' }, `${solved} solved · ${rows.length - solved} missed`)),
+    h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, `🧩 ${R.name}'s puzzles`),
+    h('p', { class: 'hint' }, 'What they solved and missed (with the move they tried). Tap any one to pull it up on the board and work through it together.'),
+    h('div', { class: 'hist-list' }, ...rows.map((row, i) => {
+      const ok = row.solved, sol = sanOf(row.fen, (row.moves || '').split(' ')[0]), tried = sanOf(row.fen, row.tried);
+      return h('div', { class: 'hist-row' + (ok ? ' ok' : ' miss') },
+        h('span', { class: 'hist-mark' }, ok ? '✓' : '✗'),
+        h('div', { class: 'hist-main' },
+          h('div', { class: 'hist-top' }, h('span', { class: 'hist-theme' }, themeLabel(row.theme)), row.rating ? h('span', { class: 'hint tiny' }, `lvl ${row.rating}`) : null),
+          h('div', { class: 'hint tiny hist-detail' }, ok
+            ? (sol ? `Best move: ${sol}` : 'Solved')
+            : [h('span', {}, tried ? `Tried ${tried}` : 'Missed'), sol ? h('span', { style: { color: 'var(--accent)' } }, `  ·  best was ${sol}`) : null])),
+        h('button', { class: 'btn ghost small', onclick: () => renderReviewOne(i) }, 'On board →'));
+    })));
+}
+
+function renderReviewOne(i) {
+  const R = CS.review, row = R.rows[i];
   const p = { id: row.puzzle_id, fen: row.fen, solutionMoves: (row.moves || '').split(' ').filter(Boolean), theme: row.theme, rating: row.rating };
+  const triedSan = sanOf(row.fen, row.tried);
   clear(host);
   let toMove = 'White';
   try { toMove = new Chess(p.fen).turn() === 'w' ? 'White' : 'Black'; } catch { /* bad fen */ }
-  const status = h('div', { class: 'puzzle-status' }, `${toMove} to move — ${R.name} missed this. Find the move together.`);
+  const status = h('div', { class: 'puzzle-status' }, row.solved
+    ? `${R.name} solved this one — replay it together.`
+    : `${toMove} to move — ${R.name} missed this${triedSan ? ` (played ${triedSan})` : ''}. Find the move together.`);
   const side = h('div', { class: 'sidebar' });
   host.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between' } },
-      h('button', { class: 'btn ghost small', onclick: () => { CS.review = null; draw(); } }, '← Back to students'),
-      h('div', { class: 'hint tiny' }, `${R.name}'s misses · ${R.i + 1} of ${R.rows.length} · ${themeLabel(p.theme)}`)),
+      h('button', { class: 'btn ghost small', onclick: renderPuzzleHistoryList }, '← Back to history'),
+      h('div', { class: 'hint tiny' }, `${R.name} · ${themeLabel(p.theme)}`)),
     h('h1', { style: { marginTop: '6px', fontSize: '20px' } }, `🎬 Reviewing with ${R.name}`),
     h('div', { class: 'review section', style: { gridTemplateColumns: '480px 1fr' } },
       h('div', { class: 'board-wrap' }, h('div', { id: 'miss-board' })), side));
-  const nextBtn = h('button', { class: 'btn', style: { marginTop: '12px' }, onclick: () => { R.i++; if (R.i >= R.rows.length) { CS.review = null; return draw(); } renderMissedPuzzle(); } }, R.i >= R.rows.length - 1 ? 'Done ✓' : 'Next miss →');
   const ctrl = mountPuzzle(document.getElementById('miss-board'), p, {
     allowRetry: true,
     onWrong: () => { status.textContent = 'Not the move — try again, or reveal it.'; status.className = 'puzzle-status no'; },
     onSolved: () => { status.textContent = '✓ That\'s the move!'; status.className = 'puzzle-status ok'; },
   });
   clear(side).append(status,
-    h('div', { class: 'row', style: { gap: '8px', alignItems: 'center' } },
+    triedSan && !row.solved ? h('div', { class: 'hint tiny', style: { marginTop: '6px' } }, `They played ${triedSan} here — see why it doesn't work, then find the right one.`) : null,
+    h('div', { class: 'row', style: { gap: '8px', alignItems: 'center', marginTop: '10px' } },
       h('button', { class: 'btn ghost small', onclick: () => ctrl.hint() }, '💡 Show the move'),
-      h('span', { class: 'hint tiny' }, p.rating ? `level ${p.rating}` : '')),
-    nextBtn);
+      h('span', { class: 'hint tiny' }, p.rating ? `level ${p.rating}` : '')));
 }
 
 // ============================ roster management (collapsed by default) ============================

@@ -191,6 +191,20 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
   background: linear-gradient(180deg, rgba(228, 179, 58, .16), rgba(228, 179, 58, .06)); transition: transform .12s, border-color .12s, box-shadow .12s; }
 .km-chip:hover { transform: translateY(-1px); border-color: rgba(228, 179, 58, .9); box-shadow: 0 3px 10px rgba(228, 179, 58, .18); }
 .km-chip .km-glyph { font-weight: 800; }
+
+/* puzzle history list — "Past puzzles" (student) and the coach's student history */
+.hist-list { display: flex; flex-direction: column; gap: 8px; }
+.hist-row { display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: var(--surface); border: 1px solid var(--line); border-left-width: 3px; border-radius: 12px; box-shadow: var(--shadow-sm); }
+.hist-row.ok { border-left-color: var(--accent); }
+.hist-row.miss { border-left-color: #d9534f; }
+.hist-mark { font-size: 16px; font-weight: 800; width: 16px; text-align: center; flex-shrink: 0; }
+.hist-row.ok .hist-mark { color: var(--accent); }
+.hist-row.miss .hist-mark { color: #e0736f; }
+.hist-main { flex: 1; min-width: 0; }
+.hist-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.hist-theme { font-weight: 700; font-size: 14px; }
+.hist-detail { margin-top: 2px; }
+.hist-row > .btn { flex-shrink: 0; }
 .glyph { font-size: 11px; font-weight: 800; }
 
 .accbar { display: flex; gap: 26px; align-items: center; }
