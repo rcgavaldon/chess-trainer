@@ -16,7 +16,9 @@ export function createCoachChat({ model = CHAT_MODEL, getContext }) {
       'You are a friendly, patient chess coach in a back-and-forth conversation with an improving player. ' +
       'Answer in 1-2 short sentences (only go longer if the question genuinely needs it), plain language, simple ' +
       'enough for a beginner, specific to the position. Give the WHY and the plan, not just the move — but keep it ' +
-      'tight, no filler. If they go off-topic, gently steer back to the chess in front of you.' +
+      'tight, no filler. If they go off-topic, gently steer back to the chess in front of you. ' +
+      'Stick to what the position context below actually states — do not invent tactics, threats, or ' +
+      'piece locations you cannot verify from it; if unsure, say so or stay general.' +
       (getLang() === 'es' ? ' Reply entirely in natural Spanish.' : '') +
       '\n\nCURRENT POSITION CONTEXT:\n' + (getContext ? getContext() : 'n/a');
     const ep = coachEndpoint();

@@ -331,13 +331,18 @@ export function explainMove(ctx) {
       add(95, 'fork', `Fork! Your ${NAME[fork.forker]} hits the ${list} at once — one will fall.`);
     }
     if (ctx.move.captured) {
-      const cb = new Chess(ctx.fenBefore);
-      const oppDefends = cb.isAttacked(ctx.move.to, cb.turn() === 'w' ? 'b' : 'w');
-      if (!oppDefends) add(90, 'freecap', `Wins the ${NAME[ctx.move.captured]} for free.`);
-      else {
-        const rec = detectRecapture(ctx);
-        if (rec) add(72, 'recap', `Recaptures on ${ctx.move.to} to keep material even.`);
-        else add(66, 'trade', `Trades on ${ctx.move.to} — simplifying, which helps when you're ahead.`);
+      // Judge the capture on the RESULTING position (fenAfter), not fenBefore: moving the capturing
+      // piece can reveal a defender it was blocking, so a "trade" would otherwise read as "free".
+      // Then use static-exchange eval to tell a genuine free win / won exchange from an even trade.
+      const oppColor = ctx.move.color === 'w' ? 'b' : 'w';
+      const canRecapture = new Chess(ctx.fenAfter).isAttacked(ctx.move.to, oppColor);
+      if (!canRecapture) {
+        add(90, 'freecap', `Wins the ${NAME[ctx.move.captured]} for free — nothing can recapture on ${ctx.move.to}.`);
+      } else {
+        const net = (PIECE_VAL[ctx.move.captured] || 0) - Math.max(0, see(ctx.fenAfter, ctx.move.to));
+        if (net >= 2) add(74, 'wonexch', `Wins material — your ${NAME[ctx.move.piece]} nets a ${NAME[ctx.move.captured]} on ${ctx.move.to}.`);
+        else if (detectRecapture(ctx)) add(72, 'recap', `Recaptures on ${ctx.move.to} to keep material even.`);
+        else add(66, 'trade', `Trades on ${ctx.move.to} — an even swap that simplifies the position.`);
       }
     }
     if (detectPassedPush(ctx)) add(82, 'passed', `Pushes your passed pawn toward queening — a runner like this can decide the endgame.`);

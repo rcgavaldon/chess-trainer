@@ -7,6 +7,12 @@ import { getLang } from './i18n.js';
 // When the app is in Spanish, the coach answers in Spanish too.
 const langInstruction = () => (getLang() === 'es' ? ' Write your entire answer in natural Spanish.' : '');
 
+// Anti-hallucination: the model can't reliably read a raw FEN, so keep it anchored to the facts it's
+// actually given and stop it inventing tactics/threats/pieces it can't be sure of.
+const GROUND = ' Base your comment ONLY on the facts provided: the move played, its grade, the engine\'s ' +
+  'move, and the heuristic note. Do NOT invent specific tactics, threats, checks, captures, or piece ' +
+  'locations you are not certain of from those facts — if unsure, keep it general and principle-based.';
+
 // Cheap+fast default for short per-move comments; configurable from settings later.
 export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 
@@ -42,7 +48,7 @@ export async function commentMove({ model = DEFAULT_MODEL, fen, color, playedSan
   const res = await fetch(ep.url, {
     method: 'POST',
     headers: ep.headers,
-    body: JSON.stringify({ model, max_tokens: 170, temperature: 0.4, system: system + langInstruction(), messages: [{ role: 'user', content: user }] }),
+    body: JSON.stringify({ model, max_tokens: 170, temperature: 0.4, system: system + GROUND + langInstruction(), messages: [{ role: 'user', content: user }] }),
   });
   if (res.status === 401) throw new Error('Invalid Anthropic API key');
   if (res.status === 429) throw new Error('Rate limited — wait a moment and retry');
