@@ -130,7 +130,9 @@ export async function loadFullShard(theme) {
   try { rows = await fetchTimeout('puzzles/' + theme + '.json', 8000); } catch { return []; }
   if (!Array.isArray(rows)) return [];
   const out = [];
-  for (const r of rows) { try { out.push(puzzleFromShard(r)); } catch {} }
+  // Label each puzzle by the shard's theme (the specific pattern it was filed under), not its first
+  // raw Lichess theme — which is often a generic outcome tag like "crushing"/"advantage".
+  for (const r of rows) { try { const p = puzzleFromShard(r); p.theme = theme; out.push(p); } catch {} }
   return out;
 }
 
@@ -152,7 +154,10 @@ export async function loadThemeShard(theme, { count = 6, targetRating = null, ex
   }
   shuffle(pool);
   const picked = [];
-  for (const row of pool) { if (picked.length >= count) break; try { picked.push(puzzleFromShard(row)); } catch {} }
+  // Label by the requested shard theme (what the user selected / "Train this" asked for), so a fork
+  // puzzle reads "🍴 Fork" — not whatever generic tag ("crushing" → "Winning tactic") happened to be
+  // first in its raw Lichess theme list.
+  for (const row of pool) { if (picked.length >= count) break; try { const p = puzzleFromShard(row); p.theme = theme; picked.push(p); } catch {} }
   return picked.length ? picked : null;
 }
 
