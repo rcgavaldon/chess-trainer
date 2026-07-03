@@ -749,6 +749,28 @@ function renderReview(game, analysis) {
     ) : null,
   );
 
+  // Mobile: a small toggle between the move explanation and the chat, so each gets the room it
+  // needs. Tapping "Chat" minimizes the explanation and turns the board + chat into their own
+  // focused view — and the coach still sees whatever position you've stepped to. Desktop shows both
+  // (the tabs are hidden by CSS there).
+  const expTab = h('button', { class: 'panel-tab active' }, '📖 Explanation');
+  const chatTab = h('button', { class: 'panel-tab' }, '💬 Chat');
+  const panelTabs = h('div', { class: 'panel-tabs' }, expTab, chatTab);
+  const chatSection = h('div', { class: 'section rc-chat' },
+    h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '6px', color: 'var(--accent-2)' } }, '💬 Ask the coach — it sees the position you\'re on'),
+    h('div', { id: 'review-chat' }));
+  const sidebar = h('div', { class: 'sidebar', 'data-panel': 'explain' }, nav, panelTabs, explainBox, chatSection, moveList);
+  const setPanel = (which) => {
+    sidebar.dataset.panel = which; card.dataset.panel = which;
+    expTab.classList.toggle('active', which === 'explain');
+    chatTab.classList.toggle('active', which === 'chat');
+    requestAnimationFrame(() => R._evalResize && R._evalResize()); // board size changes → re-sync eval bar
+    if (which === 'chat') setTimeout(() => document.querySelector('#review-chat input')?.focus(), 40);
+  };
+  expTab.onclick = () => setPanel('explain');
+  chatTab.onclick = () => setPanel('chat');
+  card.dataset.panel = 'explain';
+
   card.append(
     introCard,
     accBar,
@@ -756,10 +778,7 @@ function renderReview(game, analysis) {
     h('div', { class: 'review section' },
       evalbar,
       h('div', { class: 'board-wrap' }, boardEl),
-      h('div', { class: 'sidebar' }, nav, explainBox, moveList,
-        h('div', { class: 'section' },
-          h('div', { class: 'hint tiny', style: { fontWeight: 700, marginBottom: '6px', color: 'var(--accent-2)' } }, '💬 Ask the coach'),
-          h('div', { id: 'review-chat' })))),
+      sidebar),
     buildEvalGraph(analysis),
   );
 
