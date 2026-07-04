@@ -53,17 +53,20 @@ function normalizeStudent(s) {
   return row;
 }
 
-// ---- puzzle rating (adaptive, per player) ----
-// Merge-updates the player's roster row with their latest puzzle rating. Only affects rows that
-// already exist (roster students) — a bare {username, puzzle_rating} insert fails the NOT NULL
-// name and is swallowed, so non-roster users never create orphan rows. Requires the column:
+// ---- partial roster-row updates (PATCH, NOT upsert) ----
+// ⚠ A partial merge-upsert ({username, one_field}) 400s EVEN FOR EXISTING ROWS: Postgres runs the
+// INSERT branch first, which violates the students.name NOT NULL constraint before ON CONFLICT can
+// merge (verified live: 23502). PATCH updates existing rows and no-ops on missing ones — exactly
+// the "never create orphan rows" semantics these need.
+
+// The player's latest adaptive puzzle rating. Requires the column:
 //   alter table public.students add column if not exists puzzle_rating int;
 export const publishPuzzleRating = (username, rating) =>
-  rest('students?on_conflict=username', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [{ username: (username || '').toLowerCase(), puzzle_rating: Math.round(rating) }] }).catch(() => {});
+  rest(`students?username=eq.${encodeURIComponent((username || '').toLowerCase())}`, { method: 'PATCH', prefer: 'return=minimal', body: { puzzle_rating: Math.round(rating) } }).catch(() => {});
 
-// Merge the player's US Chess ID onto their roster row so coaches can pull tournament history.
+// The player's US Chess ID, so coaches can pull tournament history from any device.
 export const publishUscfId = (username, uscfId) =>
-  rest('students?on_conflict=username', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [{ username: (username || '').toLowerCase(), uscf_id: uscfId || null }] }).catch(() => {});
+  rest(`students?username=eq.${encodeURIComponent((username || '').toLowerCase())}`, { method: 'PATCH', prefer: 'return=minimal', body: { uscf_id: uscfId || null } }).catch(() => {});
 
 // One player's roster row (e.g. to read a uscf_id saved from another device / by the coach).
 export const fetchStudentRow = (username) =>

@@ -171,6 +171,14 @@ if (_cls) {
 
 updateOwnerBadge();
 applyTheme(store.get('profile.accent', 'green'));
+// Self-heal: if this device knows the player's US Chess ID, make sure the cloud row has it too
+// (earlier saves silently failed to publish — see cloud.js publishUscfId).
+{
+  const uscf = store.get('profile.uscfId', '');
+  if (/^\d{8,9}$/.test(uscf) && store.get('profile.username')) {
+    import('./cloud.js').then((c) => c.publishUscfId(store.get('profile.username'), uscf)).catch(() => {});
+  }
+}
 // Students don't get coach tools — keep their app to Personal / Openings / Train.
 if (store.get('profile.role') === 'student') {
   for (const a of document.querySelectorAll('.tabs a')) {
