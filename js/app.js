@@ -82,6 +82,16 @@ function openSettings() {
   $('set-owner').value = p.ownerName || '';
   $('set-username').value = p.username || '';
   $('set-uscf').value = p.uscfId || '';
+  // On a device that hasn't seen the ID yet, pull it from the player's cloud row so Settings
+  // reflects what's already saved (enter once → shows everywhere).
+  if (!p.uscfId && p.username) {
+    import('./cloud.js').then((c) => c.fetchStudentRow(p.username)).then((row) => {
+      if (row && /^\d{8,9}$/.test(row.uscf_id || '') && !$('set-uscf').value) {
+        $('set-uscf').value = row.uscf_id;
+        store.set('profile.uscfId', row.uscf_id);
+      }
+    }).catch(() => {});
+  }
   $('set-timeclass').value = p.timeClass || 'rapid';
   $('set-depth').value = p.engineDepth || 14;
   $('set-depth-val').textContent = (p.engineDepth || 14);
