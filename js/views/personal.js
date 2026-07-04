@@ -159,6 +159,14 @@ function scopeAnalyses(myGames) {
   return currentAnalyses().filter((a) => urls.has(a.game?.url));
 }
 
+// The report/assessment input: the most RECENT analyzed games, capped. Background banking keeps
+// analyzing older games after the report first renders — computing over "everything analyzed so
+// far" made the weakness assessment change on every load as the set grew. A recency window
+// converges once the newest N are banked and then only moves when NEW games are played.
+function stableAnalyses(analyses, cap = 30) {
+  return analyses.slice().sort((a, b) => (b.game?.endTime || 0) - (a.game?.endTime || 0)).slice(0, cap);
+}
+
 function tcSwitcher(allMine, scope) {
   const counts = {}; for (const g of allMine) counts[g.timeClass] = (counts[g.timeClass] || 0) + 1;
   const tcs = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
@@ -190,7 +198,7 @@ async function drawReport() {
   const record = recordOf(myGames);
   const last10rec = recordOf(myGames.slice(0, 10));
   const eloPoints = myGames.filter((g) => g.userRating != null).slice().reverse().map((g) => ({ rating: g.userRating, date: g.dateUTC }));
-  const analyses = scopeAnalyses(myGames);
+  const analyses = stableAnalyses(scopeAnalyses(myGames));
 
   if (analyses.length) {
     const I = computeInsights(analyses, S.username);
@@ -570,7 +578,7 @@ function drawImprove() {
   const area = document.getElementById('improve-area');
   if (!area) return;
   clear(area).append(h('h2', {}, 'Improve'), deepScanBar());
-  const analyses = currentAnalyses();
+  const analyses = stableAnalyses(currentAnalyses()); // same stable window as the main report
   const u = (S.username || '').toLowerCase();
   const myGames = S.games.filter((g) => (g.username || '').toLowerCase() === u);
 
@@ -804,14 +812,26 @@ function fmtUscfDate(d) { try { return new Date(d + 'T12:00:00').toLocaleDateStr
 function uscfDelta(s) { return (s.pre != null && s.post != null) ? s.post - s.pre : null; }
 
 export function uscfCard(uscfId) {
-  const id = String(uscfId || store.get('profile.uscfId', '')).trim();
-  if (!uscfAvailable() || !validUscfId(id)) return null;
+  if (!uscfAvailable()) return null;
+  let id = String(uscfId || store.get('profile.uscfId', '')).trim();
   const body = h('div', { class: 'hint tiny' }, 'Loading tournaments…');
   const refresh = h('button', { class: 'btn ghost small', onclick: () => load(true) }, '↻ Refresh');
   const card = h('div', { class: 'card section' },
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center' } },
       h('h2', { style: { margin: 0 } }, '🏅 US Chess tournaments'), refresh),
     body);
+  if (!validUscfId(id)) {
+    // No ID on this device — the coach (or the player, elsewhere) may have saved it to their cloud
+    // roster row. Resolve async; if there's truly no ID anywhere, the card removes itself.
+    import('../cloud.js').then((c) => c.fetchStudentRow(S.username)).then((row) => {
+      if (row && validUscfId(row.uscf_id)) {
+        id = String(row.uscf_id).trim();
+        store.set('profile.uscfId', id); // remember locally so next load is instant
+        load(false);
+      } else card.remove();
+    }).catch(() => card.remove());
+    return card;
+  }
 
   const fmtRec = (r) => r ? `${r.w}W–${r.l}L${r.d ? `–${r.d}D` : ''}` : null;
   function eventRow(ev) {

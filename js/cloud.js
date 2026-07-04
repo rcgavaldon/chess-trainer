@@ -65,6 +65,10 @@ export const publishPuzzleRating = (username, rating) =>
 export const publishUscfId = (username, uscfId) =>
   rest('students?on_conflict=username', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: [{ username: (username || '').toLowerCase(), uscf_id: uscfId || null }] }).catch(() => {});
 
+// One player's roster row (e.g. to read a uscf_id saved from another device / by the coach).
+export const fetchStudentRow = (username) =>
+  rest(`students?select=*&username=eq.${encodeURIComponent((username || '').toLowerCase())}&limit=1`).then((rows) => (rows && rows[0]) || null).catch(() => null);
+
 // ---- puzzle attempt log (every puzzle done by everyone; coaches review the misses) ----
 // Requires table puzzle_attempts (see supabase_schema.sql). Best-effort — swallows errors so a
 // missing table or offline never interrupts training.

@@ -37,7 +37,11 @@ export function mountPuzzle(el, puzzle, opts = {}) {
     } else {
       const first = !wrongOnce; wrongOnce = true;
       opts.onWrong && opts.onWrong(puzzle, first, { orig, dest, uci, fen: chess.fen() });
-      ground.set({ fen: chess.fen(), movable: { color: side, dests: opts.allowRetry === false ? new Map() : legalDests(chess) } });
+      // Reset for the retry. turnColor MUST come back to the solver: chessground flipped it after
+      // the (wrong) move, and with it flipped a new drag registers as a queued PREMOVE instead of a
+      // move — which read as "it won't let me try again".
+      ground.set({ fen: chess.fen(), turnColor: side, lastMove: undefined, movable: { color: side, dests: opts.allowRetry === false ? new Map() : legalDests(chess) } });
+      ground.cancelPremove && ground.cancelPremove();
     }
   }
 
