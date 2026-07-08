@@ -202,8 +202,9 @@ function renderDigest(x, d) {
 // when the student has an ID on their cloud row; otherwise the coach can set it right here.
 function uscfSection(x) {
   const wrap = h('div', { style: { marginTop: '10px' }, onclick: (e) => e.stopPropagation() });
-  if (x.uscf_id) {
-    const card = personal.uscfCard(x.uscf_id);
+  if (/^\d{8,9}$/.test(x.uscf_id || '')) {
+    // Scope the card to THIS student (x.username), so it never picks up the coach's own USCF id.
+    const card = personal.uscfCard(x.uscf_id, x.username);
     if (card) { card.classList.remove('section'); card.style.marginTop = '6px'; wrap.append(card); }
     return wrap;
   }

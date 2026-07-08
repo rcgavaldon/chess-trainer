@@ -106,10 +106,15 @@ dlg.addEventListener('close', () => {
   store.set('profile.ownerName', $('set-owner').value.trim());
   store.set('profile.username', $('set-username').value.trim());
   const uscf = $('set-uscf').value.trim();
-  store.set('profile.uscfId', uscf);
-  // share it to the roster row so the coach's Students view can pull their tournament history
-  if (uscf && store.get('profile.username')) {
-    import('./cloud.js').then((c) => c.publishUscfId(store.get('profile.username'), uscf)).catch(() => {});
+  if (uscf && !/^\d{8,9}$/.test(uscf)) {
+    alert('US Chess ID must be 8–9 digits — left unchanged.');
+  } else {
+    // Save + publish (including clearing to null so the ID can actually be removed). Push to the
+    // OWNER's own roster row so the Students view + other devices can read it.
+    store.set('profile.uscfId', uscf);
+    if (store.get('profile.username')) {
+      import('./cloud.js').then((c) => c.publishUscfId(store.get('profile.username'), uscf || null)).catch(() => {});
+    }
   }
   store.set('profile.timeClass', $('set-timeclass').value);
   store.set('profile.engineDepth', parseInt($('set-depth').value, 10));

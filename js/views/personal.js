@@ -225,7 +225,7 @@ async function drawReport() {
         onGo: (f) => trainFocus(f),
       });
       area.append(progressCard(S.username));
-      const uc = uscfCard(); if (uc) area.append(uc);
+      const uc = uscfCard(null, S.username); if (uc) area.append(uc);
       area.append(gamesDetails(), breakdownDetails(analyses, myGames));
     }
     // First-run reveal: the 60-second "your chess, decoded" intro, ONCE. Guard against a re-render
@@ -405,7 +405,7 @@ function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints
       h('div', { class: 'hint' }, `Your ${dimName(pd.mostImproved.key)} is up +${pd.mostImproved.delta} lately${pd.ratingDelta != null ? `, and your rating ${pd.ratingDelta >= 0 ? '+' : ''}${pd.ratingDelta}` : ''}. Keep it going!`)));
   }
   renderBadges(area, badgeData(myGames, eloPoints));
-  const uc = uscfCard(); if (uc) area.append(uc);
+  const uc = uscfCard(null, S.username); if (uc) area.append(uc);
   area.append(gamesDetails());
 }
 
@@ -811,9 +811,15 @@ function renderReview(game, analysis) {
 function fmtUscfDate(d) { try { return new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' }); } catch { return d; } }
 function uscfDelta(s) { return (s.pre != null && s.post != null) ? s.post - s.pre : null; }
 
-export function uscfCard(uscfId) {
+export function uscfCard(uscfId, username) {
   if (!uscfAvailable()) return null;
-  let id = String(uscfId || store.get('profile.uscfId', '')).trim();
+  // ALWAYS scope to a specific player. `username` is who this card is FOR (a coach viewing a
+  // student passes the student). Only fall back to / cache into the device profile when the card
+  // is the OWNER's own — otherwise a coach's ID would render on a student's report (and worse, get
+  // written into the coach's profile + cloud row).
+  const player = String(username || S.username || '').toLowerCase();
+  const isOwner = !!player && player === String(store.get('profile.username', '') || '').toLowerCase();
+  let id = String(uscfId || (isOwner ? store.get('profile.uscfId', '') : '')).trim();
   const body = h('div', { class: 'hint tiny' }, 'Loading tournaments…');
   const refresh = h('button', { class: 'btn ghost small', onclick: () => load(true) }, '↻ Refresh');
   const card = h('div', { class: 'card section' },
@@ -821,12 +827,12 @@ export function uscfCard(uscfId) {
       h('h2', { style: { margin: 0 } }, '🏅 US Chess tournaments'), refresh),
     body);
   if (!validUscfId(id)) {
-    // No ID on this device — the coach (or the player, elsewhere) may have saved it to their cloud
-    // roster row. Resolve async; if there's truly no ID anywhere, the card removes itself.
-    import('../cloud.js').then((c) => c.fetchStudentRow(S.username)).then((row) => {
+    if (!player) { card.remove(); return card; }
+    // Resolve from THIS player's cloud roster row (not the device profile of whoever's logged in).
+    import('../cloud.js').then((c) => c.fetchStudentRow(player)).then((row) => {
       if (row && validUscfId(row.uscf_id)) {
         id = String(row.uscf_id).trim();
-        store.set('profile.uscfId', id); // remember locally so next load is instant
+        if (isOwner) store.set('profile.uscfId', id); // cache only the owner's own id, locally
         load(false);
       } else card.remove();
     }).catch(() => card.remove());
