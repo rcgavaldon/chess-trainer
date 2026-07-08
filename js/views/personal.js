@@ -839,7 +839,8 @@ export function uscfCard(uscfId) {
     const d = uscfDelta(main);
     const chips = h('div', { class: 'row', style: { gap: '6px', flexShrink: 0 } },
       ev.record ? h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700 } }, fmtRec(ev.record)) : null,
-      d == null ? null : h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, color: d >= 0 ? 'var(--good)' : 'var(--bad)' } }, (d >= 0 ? '+' : '') + d));
+      d != null ? h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, color: d >= 0 ? 'var(--good)' : 'var(--bad)' } }, (d >= 0 ? '+' : '') + d)
+        : main.post != null ? h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent-2)' } }, '→ ' + main.post) : null);
     const gameLine = (g) => h('div', { style: { padding: '2px 0 2px 12px' } },
       h('span', { style: { fontWeight: 800, color: g.outcome === 'Win' ? 'var(--good)' : g.outcome === 'Loss' ? 'var(--bad)' : 'var(--muted)' } },
         g.outcome === 'Win' ? '✓ W' : g.outcome === 'Loss' ? '✗ L' : '½ D'),
@@ -849,7 +850,8 @@ export function uscfCard(uscfId) {
         h('div', {},
           h('b', {}, `${s.name || 'Section'}${s.system ? ' · ' + s.system : ''}`),
           s.record ? h('span', {}, `  ${fmtRec(s.record)}`) : null,
-          s.pre != null ? h('span', {}, '  · rating ', h('b', {}, `${s.pre} → ${s.post}`)) : null,
+          s.pre != null ? h('span', {}, '  · rating ', h('b', {}, `${s.pre} → ${s.post}`)) :
+            s.post != null ? h('span', {}, '  · new rating ', h('b', {}, String(s.post)), h('span', { class: 'hint tiny' }, ' (first rated event)')) : null,
           uscfDelta(s) != null ? h('span', { style: { color: uscfDelta(s) >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 700 } }, ` ${uscfDelta(s) >= 0 ? '+' : ''}${uscfDelta(s)}`) : null),
         ...s.games.map(gameLine))),
       ev.id ? h('div', { style: { marginTop: '6px' } }, h('a', { href: eventUrl(ev.id), target: '_blank', rel: 'noopener', onclick: (e) => e.stopPropagation() }, 'View event on US Chess ↗')) : null);
@@ -870,7 +872,7 @@ export function uscfCard(uscfId) {
       const data = await fetchUscfHistory(id, { force });
       clear(body);
       if (!data.events.length) { body.append(h('div', { class: 'hint' }, 'No rated tournaments on record yet — they\'ll show up here after your first one.')); return; }
-      const reg = data.member.ratings.find((r) => r.system === 'R');
+      const reg = data.member.ratings.find((r) => r.system === 'R' && r.rating != null);
       const ageMin = Math.round((Date.now() - (data.fetchedAt || Date.now())) / 60000);
       const age = ageMin < 2 ? 'just now' : ageMin < 90 ? `${ageMin} min ago` : ageMin < 48 * 60 ? `${Math.round(ageMin / 60)}h ago` : `${Math.round(ageMin / 1440)}d ago`;
       body.append(h('div', { class: 'hint tiny', style: { marginBottom: '4px' } },

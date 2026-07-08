@@ -150,6 +150,7 @@ if (_params.get('u')) {
   if (_params.get('role')) { store.set('profile.role', _params.get('role').trim()); store.set('profile.welcomeSeen', false); }
   if (_params.get('g')) store.set('profile.group', _params.get('g').trim());
   if (_params.get('coach')) store.set('profile.coach', _params.get('coach').trim());
+  if (/^\d{8,9}$/.test(_params.get('uscf') || '')) store.set('profile.uscfId', _params.get('uscf').trim());
   store.set('profile.onboarded', true);
 }
 // Coach restoring their whole class on any device — the roster rides inside the link (?class=<base64>).
@@ -196,6 +197,38 @@ if (langBtn) {
 store.onRouteChange(draw);
 startI18n(); // translate the chrome + current view, and observe async-rendered content, when Spanish
 if (!store.get('profile.username')) showOnboarding();
+
+// ---- auto-update check ----
+// This is a SPA: once loaded it never re-fetches code, and phones keep the tab alive for days —
+// so fixes "don't arrive". Poll the deployed index.html's ETag (cache-bypassed) on focus + every
+// few minutes; when it changes, offer a one-tap reload.
+(function updateCheck() {
+  let current = null, prompted = false;
+  async function stamp() {
+    try {
+      const r = await fetch('./index.html', { method: 'HEAD', cache: 'no-store' });
+      return r.headers.get('etag') || r.headers.get('last-modified') || null;
+    } catch { return null; }
+  }
+  function promptReload() {
+    if (prompted || document.getElementById('update-toast')) return;
+    prompted = true;
+    const t = document.createElement('div');
+    t.id = 'update-toast';
+    t.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));z-index:300;background:var(--accent);color:#0a1e12;font-weight:800;padding:12px 18px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.45);cursor:pointer;font-size:14px';
+    t.textContent = '🔄 Update available — tap to refresh';
+    t.onclick = () => location.reload();
+    document.body.appendChild(t);
+  }
+  stamp().then((v) => { current = v; });
+  const check = async () => {
+    if (!current) { current = await stamp(); return; }
+    const v = await stamp();
+    if (v && v !== current) promptReload();
+  };
+  setInterval(check, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+})();
 
 // ---- first-run onboarding (saved on this device) ----
 function showOnboarding() {
