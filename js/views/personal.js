@@ -15,7 +15,7 @@ import { bankGames, pauseBanking, resumeBanking, cancelBanking, isBanking } from
 import { tiltSignals, restAdvice, tiltColor } from '../tilt.js';
 import { computeBadges, newlyEarned } from '../achievements.js';
 import { LESSONS } from '../lessons.js';
-import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport, renderRatingHistory } from '../insightsview.js';
+import { renderImprove, renderByTimeControl, renderScorecard, renderTodayPlan, renderCleanReport, renderRatingHistory, renderSkills } from '../insightsview.js';
 import { BENCHMARKS } from '../benchmarks.js';
 import { commentMove, coachPlan } from '../llm.js';
 import { coachEnabled } from '../coach.js';
@@ -210,24 +210,14 @@ async function drawReport() {
     recordSnapshot(S.username, { rating: myGames[0]?.userRating || I.ratingAvg, acc: I.accAvg, dims });
     publishAssessment(myGames[0]?.userRating || I.ratingAvg, I.accAvg, dims); // share the REAL dims so the coach's leaderboard digest matches this report
     startBanking(allMine); // bank the rest of the games deeply, in the background
-    if (store.get('profile.role') === 'student') {
-      // STUDENTS get the gist + clear actions, not the deep analytics.
-      renderStudentReport(area, { record, last10: last10rec, dims, I, myGames, eloPoints, scope, scopeName });
-    } else {
-      // COACHES (and the owner) get the full report.
-      area.append(nextStepsCard(), reportCard(allMine));
-      renderBadges(area, badgeData(myGames, eloPoints));
-      renderCleanReport(area, {
-        rating: myGames[0]?.userRating || I.ratingAvg, scope: scope === 'all' ? null : scopeName,
-        record, last10: last10rec, accAvg: I.accAvg, accDelta, dims, narr, accTrend: I.accTrend,
-        eloPoints, focus: focusAreas(dims),
-        onTrain: () => trainAllWeak(focusAreas(dims)),
-        onGo: (f) => trainFocus(f),
-      });
-      area.append(progressCard(S.username));
-      const uc = uscfCard(null, S.username); if (uc) area.append(uc);
-      area.append(gamesDetails(), breakdownDetails(analyses, myGames));
-    }
+    // ONE streamlined, kid-friendly report for everyone: a poppy hero (rating + trend + your #1
+    // fix), the game plan, skills, where-you-rank, your games — with all the deep analytics tucked
+    // into a "See everything" drawer. Coaches get the AI note + peer breakdown inside that drawer.
+    renderReport(area, {
+      student: store.get('profile.role') === 'student',
+      record, last10: last10rec, dims, I, myGames, eloPoints, scope, scopeName,
+      accDelta, today, narr, focus: focusAreas(dims), allMine, analyses,
+    });
     // First-run reveal: the 60-second "your chess, decoded" intro, ONCE. Guard against a re-render
     // (banking / scope change re-calls drawReport before the intro finishes) replaying it: mark it
     // seen immediately, plus a session flag so it can't fire twice on the same load.
@@ -360,67 +350,188 @@ function publishAssessment(rating, acc, dims) {
   upsertSnapshot({ username: S.username.toLowerCase(), d, rating: Math.round(rating) || null, acc: Math.round(acc) || null, dims: dimObj }).catch(() => { /* offline — local snapshot still saved */ });
 }
 
-// Students should see where they stand — the class leaderboard, with themselves highlighted.
-function studentLeaderboardCard() {
+// "Where you rank" — a poppy leaderboard peek: the podium (top 3 with medals) plus a little
+// window around YOU, with your row lit up. Shown to everyone (kids love seeing their rank), and
+// self-removes when there's nobody to compare against. The full class list lives in Students.
+function leaderboardPeek() {
   if (!cloudEnabled()) return null;
-  const wrap = h('div', { class: 'card section', id: 'stu-lb' }, h('h2', {}, '🏆 Class leaderboard'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
   const me = (S.username || '').toLowerCase();
+  const wrap = h('div', { class: 'card section', id: 'lb-peek' }, h('h2', {}, '🏆 Where you rank'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
+  const medal = ['🥇', '🥈', '🥉'];
+  const rowEl = (x, i) => {
+    const mine = (x.username || '').toLowerCase() === me;
+    return h('div', { class: 'lbp-row' + (mine ? ' me' : '') },
+      h('div', { class: 'lbp-rank' }, i < 3 ? medal[i] : '#' + (i + 1)),
+      h('div', { class: 'lbp-name' }, x.name || x.username || 'Player', mine ? h('span', { class: 'lbp-you' }, 'you') : null),
+      h('div', { class: 'lbp-rt' }, x.ladder_rating));
+  };
   fetchStudents().then((rows) => {
-    if (!document.getElementById('stu-lb')) return;
+    if (!document.getElementById('lb-peek')) return;
     const ranked = (rows || []).filter((x) => x.ladder_rating != null).sort((a, b) => b.ladder_rating - a.ladder_rating);
-    if (!ranked.length) { clear(wrap).append(h('h2', {}, '🏆 Class leaderboard'), h('div', { class: 'hint tiny' }, 'No ranked players yet — check back once your class plays some games.')); return; }
-    clear(wrap).append(h('h2', {}, '🏆 Class leaderboard'),
-      h('div', {}, ...ranked.slice(0, 20).map((x, i) => {
-        const mine = (x.username || '').toLowerCase() === me;
-        return h('div', { class: 'row', style: { justifyContent: 'space-between', padding: '7px 10px', borderTop: i ? '1px solid var(--line)' : 'none', background: mine ? 'rgba(125,211,95,.12)' : 'transparent', borderRadius: mine ? '6px' : '0' } },
-          h('div', {}, h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)', marginRight: '10px' } }, i + 1), (x.name || x.username || 'Player'), mine ? h('span', { style: { color: 'var(--accent-2)', fontWeight: 700 } }, ' ← you') : null),
-          h('b', { style: { fontFamily: 'var(--mono)' } }, x.ladder_rating));
-      })));
-  }).catch(() => { if (document.getElementById('stu-lb')) clear(wrap).append(h('h2', {}, '🏆 Class leaderboard'), h('div', { class: 'hint tiny' }, 'Leaderboard unavailable right now.')); });
+    if (ranked.length < 2) { wrap.remove(); return; } // nothing motivating to show for a lone player
+    const myIdx = ranked.findIndex((x) => (x.username || '').toLowerCase() === me);
+    // podium (0,1,2) + a window around you (you-1, you, you+1)
+    const want = [0, 1, 2];
+    if (myIdx >= 0) [myIdx - 1, myIdx, myIdx + 1].forEach((i) => want.push(i));
+    const idxs = [...new Set(want)].filter((i) => i >= 0 && i < ranked.length).sort((a, b) => a - b);
+    const body = h('div', { class: 'lbp' });
+    let prev = -1;
+    for (const i of idxs) { if (prev >= 0 && i > prev + 1) body.append(h('div', { class: 'lbp-gap' }, '···')); body.append(rowEl(ranked[i], i)); prev = i; }
+    clear(wrap).append(
+      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
+        h('h2', { style: { margin: 0 } }, '🏆 Where you rank'),
+        myIdx >= 0 ? h('span', { class: 'pill', style: { background: 'rgba(125,211,95,.18)', color: 'var(--good)' } }, `#${myIdx + 1} of ${ranked.length}`) : null),
+      body);
+  }).catch(() => { const w = document.getElementById('lb-peek'); if (w) w.remove(); });
   return wrap;
 }
 
-function renderStudentReport(area, { record, last10, dims, I, myGames, eloPoints, scope, scopeName }) {
-  const focus = focusAreas(dims);
-  const name = store.get('profile.ownerName', '') || 'there';
-  area.append(h('div', { class: 'card section' },
-    h('div', { style: { fontSize: '19px', fontWeight: 800 } }, `Hey ${name} 👋`),
-    h('div', { class: 'hint' }, `You're rated ${myGames[0]?.userRating ?? '—'}. Recent form: ${last10.w}-${last10.l}-${last10.d}. Here's your plan.`)));
-  area.append(instantSnapshot(record, last10, myGames[0]?.userRating, scope === 'all' ? null : scopeName));
-  renderRatingHistory(area, eloPoints, scope === 'all' ? null : scopeName);
-  area.append(h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.2)' } },
-    h('h2', {}, '🎯 Your 3 things to work on'),
-    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '8px' } }, 'Start at the top. A little each day beats a lot once in a while.'),
-    ...focus.slice(0, 3).map((f, i) => studentActionRow(f, i, I)),
-    h('div', { class: 'row', style: { marginTop: '12px', justifyContent: 'center' } },
-      h('button', { class: 'btn', onclick: () => trainAllWeak(focus) }, '🎯 Train all 3 in one session →'))));
-  area.append(h('div', { class: 'card section' },
-    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' } },
-      h('div', {}, h('b', {}, '🎬 Review your games'), h('div', { class: 'hint tiny' }, 'Play back your recent games and see what happened.')),
-      h('button', { class: 'btn', onclick: () => { const g = document.getElementById('games-section'); if (g) g.scrollIntoView({ behavior: 'smooth' }); } }, 'Review →'))));
-  const pd = progressDelta(S.username, 30);
-  if (pd && pd.mostImproved && pd.mostImproved.delta > 0) {
-    area.append(h('div', { class: 'card section', style: { background: 'rgba(125,211,95,.06)' } },
-      h('b', {}, '📈 You\'re improving!'),
-      h('div', { class: 'hint' }, `Your ${dimName(pd.mostImproved.key)} is up +${pd.mostImproved.delta} lately${pd.ratingDelta != null ? `, and your rating ${pd.ratingDelta >= 0 ? '+' : ''}${pd.ratingDelta}` : ''}. Keep it going!`)));
-  }
-  renderBadges(area, badgeData(myGames, eloPoints));
-  const uc = uscfCard(null, S.username); if (uc) area.append(uc);
+// ---------------- the streamlined report (one layout for kids AND coaches) ----------------
+// Meat first: a poppy hero (rating + trend + your #1 fix), your game plan, skills, where you
+// rank, your games, your badges. Everything deep (peer breakdown, by-time-control, progress
+// history, AI coach's note) lives one tap away in the "See everything" drawer.
+function renderReport(area, R) {
+  area.append(heroCard(R));
+  area.append(focusPlanCard(R));
+  renderSkills(area, R.dims);
+  const lb = leaderboardPeek(); if (lb) area.append(lb);
   area.append(gamesDetails());
+  renderBadges(area, badgeData(R.myGames, R.eloPoints));
+  const uc = uscfCard(null, S.username); if (uc) area.append(uc);
+  area.append(everythingDrawer(R));
 }
 
-function studentActionRow(f, i, I) {
-  const isOpening = f.dest === 'openings';
-  let why = f.why;
-  if (isOpening && I && I.openings) {
+// Rating "now" + how it's moving, from the chronological ELO points (oldest → newest).
+function ratingTrend(eloPoints) {
+  const rs = (eloPoints || []).filter((p) => p.rating != null).map((p) => p.rating);
+  if (!rs.length) return { cur: null, delta: 0, word: '' };
+  const cur = rs[rs.length - 1];
+  const win = rs.slice(-Math.min(20, rs.length));
+  const delta = cur - win[0];
+  const word = delta >= 8 ? 'climbing' : delta >= 2 ? 'trending up' : delta <= -8 ? 'sliding' : delta <= -2 ? 'dipping' : 'holding steady';
+  return { cur, delta, word };
+}
+
+// A tiny sparkline of the rating for the hero — pure flourish, no axes.
+function miniSpark(eloPoints) {
+  const data = (eloPoints || []).filter((p) => p.rating != null).map((p) => p.rating);
+  if (data.length < 3) return null;
+  const W = 300, H = 44, lo = Math.min(...data), hi = Math.max(...data), span = (hi - lo) || 1;
+  const x = (i) => (i * W) / (data.length - 1), y = (v) => H - 3 - ((v - lo) / span) * (H - 8);
+  const pts = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" width="100%" height="44" style="display:block">
+    <polygon points="0,${H} ${pts} ${W},${H}" fill="var(--accent)" fill-opacity=".12"/>
+    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linejoin="round"/></svg>`;
+}
+
+const winPctOf = (r) => { const g = r.w + r.l + r.d; return g ? Math.round(((r.w + r.d * 0.5) / g) * 100) : 0; };
+
+// THE hero — the meat, at a glance: big rating + trend, a streak flame, record/last-10, and your
+// single most important fix with a glowing Train button.
+function heroCard(R) {
+  const rating = R.myGames[0]?.userRating ?? R.I.ratingAvg ?? null;
+  const t = ratingTrend(R.eloPoints);
+  const dc = t.delta > 0 ? 'var(--good)' : t.delta < 0 ? 'var(--bad)' : 'var(--muted)';
+  const arrow = t.delta > 0 ? '▲' : t.delta < 0 ? '▼' : '▬';
+  let streak = 0; for (const g of R.myGames) { if (g.userResult === 'win') streak++; else break; }
+  const spark = miniSpark(R.eloPoints);
+  const top = R.focus.find((f) => f.primary) || R.focus[0];
+  const scopeLabel = R.scope === 'all' ? 'Overall' : (R.scopeName || '');
+  const chip = (k, v, sub) => h('div', { class: 'hero-chip' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v), sub != null ? h('div', { class: 'hint tiny' }, sub) : null);
+  return h('div', { class: 'card section hero' },
+    h('div', { class: 'hero-glow' }),
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' } },
+      h('div', { class: 'hero-eyebrow' }, `${scopeLabel} rating`.trim()),
+      streak >= 2 ? h('div', { class: 'hero-flame' }, `🔥 ${streak} win streak`) : null),
+    h('div', { class: 'row', style: { alignItems: 'baseline', gap: '12px', marginTop: '2px', position: 'relative' } },
+      h('div', { class: 'hero-rating' }, rating ?? '—'),
+      t.delta ? h('div', { class: 'hero-delta', style: { color: dc } }, `${arrow} ${t.delta >= 0 ? '+' : ''}${t.delta}`) : null),
+    t.word ? h('div', { class: 'hint tiny', style: { color: dc, fontWeight: 700, marginTop: '1px', position: 'relative' } }, `${t.word} lately`) : null,
+    spark ? h('div', { html: spark, style: { margin: '10px 0 2px' } }) : null,
+    h('div', { class: 'hero-chips' },
+      chip('Record', `${R.record.w}-${R.record.l}-${R.record.d}`, `${winPctOf(R.record)}% win`),
+      chip('Last 10', `${R.last10.w}-${R.last10.l}-${R.last10.d}`, `${winPctOf(R.last10)}% score`)),
+    top ? h('div', { class: 'hero-fix' },
+      h('div', { class: 'hero-eyebrow', style: { color: 'var(--accent)' } }, '🎯 Your #1 fix'),
+      h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginTop: '6px' } },
+        h('div', { style: { minWidth: 0 } }, h('b', {}, top.label), h('div', { class: 'hint tiny' }, focusWhy(top, R.I))),
+        h('button', { class: 'btn hero-train', onclick: () => trainFocus(top) }, top.dest === 'openings' ? '📖 Study →' : '🎯 Train this →'))) : null);
+}
+
+// Sharpen an opening focus with the actual weak line, when we have it.
+function focusWhy(f, I) {
+  if (f.dest === 'openings' && I && I.openings) {
     const weak = I.openings.filter((o) => o.games >= 2 && o.acc != null && o.name !== 'Unknown').sort((a, b) => a.scorePct - b.scorePct)[0];
-    if (weak) why = `You score low in the ${weak.name} (${weak.scorePct}%). Learn its plans and you'll win more of those.`;
+    if (weak) return `You score low in the ${weak.name} (${weak.scorePct}%). Learn its plans and you'll win more of those.`;
   }
-  const label = isOpening ? 'Study openings →' : 'Train this →';
-  return h('div', { class: 'focus-row' },
-    h('div', { class: 'focus-icon' }, f.icon),
-    h('div', { style: { minWidth: 0 } }, h('b', {}, `${i + 1}. ${f.label}`), h('div', { class: 'hint', style: { fontSize: '13px' } }, why)),
-    h('button', { class: 'btn small' + (i === 0 ? '' : ' ghost'), style: { alignSelf: 'center', whiteSpace: 'nowrap' }, onclick: () => trainFocus(f) }, label));
+  return f.why;
+}
+
+// "Your game plan" — the top few things to work on, each with a Train button, plus a compact
+// "what's going well" so it never feels like all bad news.
+function focusPlanCard(R) {
+  const focus = R.focus || [];
+  const goingWell = (R.narr && R.narr.goingWell) || [];
+  const row = (f, i) => {
+    const color = f.level === 'weak' ? 'var(--bad)' : f.level === 'ok' ? 'var(--warn)' : 'var(--good)';
+    return h('div', { class: 'focus-row' },
+      h('div', { class: 'focus-icon' }, f.icon),
+      h('div', { style: { minWidth: 0 } },
+        h('b', {}, `${i + 1}. ${f.label}`),
+        h('div', { class: 'track', style: { margin: '6px 0' } }, h('div', { class: 'fill', style: { width: (f.score || 0) + '%', background: color } })),
+        h('div', { class: 'hint', style: { fontSize: '13px' } }, focusWhy(f, R.I))),
+      h('button', { class: 'btn small' + (i === 0 ? '' : ' ghost'), style: { alignSelf: 'center', whiteSpace: 'nowrap' }, onclick: () => trainFocus(f) }, f.dest === 'openings' ? 'Study →' : 'Train →'));
+  };
+  return h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18)' } },
+    h('h2', {}, '🎯 Your game plan'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-6px', marginBottom: '8px' } }, 'Your biggest chances to improve, in order. Start at the top — a little each day beats a lot once in a while.'),
+    ...focus.slice(0, 3).map(row),
+    h('div', { class: 'row', style: { marginTop: '12px', gap: '10px', flexWrap: 'wrap' } },
+      h('button', { class: 'btn', onclick: () => trainAllWeak(focus) }, '🎯 Train all in one session →'),
+      h('a', { class: 'btn ghost small', href: 'https://aimchess.com', target: '_blank', rel: 'noopener' }, '↗ More drills')),
+    goingWell.length ? h('div', { style: { marginTop: '14px', borderTop: '1px solid var(--line)', paddingTop: '12px' } },
+      h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--good)', marginBottom: '6px' } }, '✅ What\'s going well'),
+      ...goingWell.slice(0, 2).map((it) => h('div', { class: 'hint', style: { fontSize: '13px', marginBottom: '3px' } }, h('b', { style: { color: 'var(--text)' } }, it.title + ' '), it.detail || ''))) : null);
+}
+
+// "See everything" — the optional deep dive. Rendered lazily on first open so it costs nothing
+// until a coach (or a curious kid) actually wants all the numbers.
+function everythingDrawer(R) {
+  const d = h('details', { class: 'more' }, h('summary', {}, '📂 See everything — all your numbers'));
+  const body = h('div', {});
+  d.append(body);
+  d.addEventListener('toggle', () => {
+    if (!d.open || d._rendered) return;
+    d._rendered = true;
+    if (R.eloPoints && R.eloPoints.length >= 3) renderRatingHistory(body, R.eloPoints, R.scope === 'all' ? null : R.scopeName);
+    body.append(progressCard(S.username));
+    body.append(reportCard(R.allMine));
+    renderByTimeControl(body, byTimeControl(R.myGames, R.analyses));
+    if (R.analyses.length) {
+      const I = computeInsights(R.analyses, S.username);
+      const rating = I.ratingAvg;
+      const peer = BENCHMARKS && rating ? comparePeers(I, rating, BENCHMARKS) : null;
+      renderImprove(body, { insights: I, peer, plan: improvementPlan(I, peer), byTC: null, onTrain: () => CTX.navigate('train') });
+    }
+    if (!R.student) maybeCoachNote(body, R);
+  });
+  return d;
+}
+
+// Optional Claude-written coach's note (owner/coach only) — inside the drawer, on demand.
+function maybeCoachNote(host, R) {
+  if (!coachEnabled()) return;
+  const I = R.I;
+  const peer = BENCHMARKS && I.ratingAvg ? comparePeers(I, I.ratingAvg, BENCHMARKS) : null;
+  const plan = improvementPlan(I, peer);
+  if (!plan.length) return;
+  const note = h('div', { class: 'why', style: { color: 'var(--accent-2)', marginTop: '8px' } });
+  const btn = h('button', { class: 'btn ghost small', onclick: async () => {
+    btn.disabled = true; btn.textContent = 'Writing…';
+    try { const txt = await coachPlan({ username: S.username, insights: I, actions: plan }); note.textContent = '💬 ' + (txt || ''); btn.remove(); }
+    catch (e) { note.textContent = '⚠ ' + e.message; btn.disabled = false; btn.textContent = '💬 Get a coach\'s note'; }
+  } }, '💬 Get a coach\'s note');
+  host.append(h('div', { class: 'card section' }, h('h2', {}, 'Coach\'s note'), btn, note));
 }
 
 function badgeData(myGames, eloPoints) {

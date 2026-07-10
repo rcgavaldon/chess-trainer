@@ -179,6 +179,20 @@ export function renderCleanReport(host, R) {
       h('span', { class: 'pill', style: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' } }, `⚑ Work on: ${weak.name} ${weak.score}`))));
 }
 
+// Compact standalone skills card — radar + strongest/weakest pills. Used on the streamlined
+// My Chess page (the deep per-dimension bars live in renderScorecard, inside the drawer).
+export function renderSkills(host, dims) {
+  if (!dims || !dims.length) return;
+  const best = bestDim(dims), weak = worstDim(dims);
+  host.append(h('div', { class: 'card section' },
+    h('h2', {}, '🕸️ Your skills at a glance'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-6px', marginBottom: '2px' } }, 'Six core skills, each scored 0–100 from your own games. The further a point reaches the rim, the stronger that skill.'),
+    h('div', { html: radarSvg(dims) }),
+    h('div', { class: 'chip-row', style: { justifyContent: 'center', marginTop: '4px' } },
+      h('span', { class: 'pill', style: { background: 'rgba(95,196,106,.18)', color: 'var(--good)' } }, `★ Strongest: ${best.name} ${best.score}`),
+      h('span', { class: 'pill', style: { background: 'rgba(230,162,60,.18)', color: 'var(--warn)' } }, `⚑ Work on: ${weak.name} ${weak.score}`))));
+}
+
 function stat(k, v, sub) {
   return h('div', { class: 'stat' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v ?? '—'), sub ? h('div', { class: 'hint tiny' }, sub) : null);
 }
