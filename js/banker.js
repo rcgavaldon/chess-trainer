@@ -19,7 +19,10 @@ export const isBanking = () => state.running;
 
 // Bank up to `cap` of the most recent games. onProgress({ banked, total, done }).
 export async function bankGames(games, engine, { cap = 100, depth = 12, onProgress } = {}) {
-  if (state.running || !engine) return;
+  if (!engine) return;
+  // If a previous run is still unwinding (e.g. the coach switched players), cancel it and wait for
+  // it to actually stop — otherwise the `state.running` guard would silently drop the new player.
+  if (state.running) { state.cancelled = true; let n = 0; while (state.running && n++ < 60) await sleep(120); }
   state.running = true; state.cancelled = false;
   const targets = (games || []).slice(0, cap);
   let banked = 0;

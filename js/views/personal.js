@@ -631,7 +631,10 @@ async function doImport() {
   const username = (S.username || '').trim();
   if (!username) return;
   cancelBanking(); S._bankingStarted = false; S._scanned = null; // new player/refresh — reset background work
-  store.set('profile.username', username);
+  // Only persist the DEVICE OWNER's own identity. A coach opening a student's "Full report" loads
+  // that student into S.username — writing it to profile.username here corrupted the coach's account.
+  const owner = String(store.get('profile.username', '') || '').trim();
+  if (!owner || username.toLowerCase() === owner.toLowerCase()) store.set('profile.username', username);
   const area = document.getElementById('report-area');
   if (area) clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your games…'));
   try {
@@ -648,7 +651,7 @@ async function doImport() {
 
 function gameListEl() {
   const wrap = h('div', {});
-  const list = h('div', { class: 'game-list' });
+  const list = h('div', { class: 'game-list reviews' }); // .reviews scopes the mobile 4-col layout
   for (const g of S.games.slice(0, 25)) {
     const a = S.analyses[g.url];
     const ccAcc = g.accuracies && g.accuracies[g.userColor] != null ? Math.round(g.accuracies[g.userColor]) : null;

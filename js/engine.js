@@ -45,13 +45,23 @@ export function createEngine() {
     if (worker) return;
     worker = new Worker(ENGINE_URL); // same-origin → engine's locateFile finds the sibling .wasm
     worker.onmessage = handleRaw;
-    worker.onerror = (err) => console.error('[stockfish] worker error', err.message || err);
-    await run(async () => {
-      send('uci');
-      await waitFor((l) => l === 'uciok');
-      send('isready');
-      await waitFor((l) => l === 'readyok');
+    // A failed worker/wasm load (or a build that never answers) must REJECT, not hang forever behind
+    // waitFor — otherwise ensureEngine() sits on a stuck "Loading engine…" toast with no recovery.
+    let onErr;
+    const failed = new Promise((_, reject) => { onErr = reject; });
+    worker.onerror = (err) => { console.error('[stockfish] worker error', err.message || err); onErr(new Error('Engine failed to load')); };
+    const ready = run(async () => {
+      send('uci'); await waitFor((l) => l === 'uciok');
+      send('isready'); await waitFor((l) => l === 'readyok');
     });
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Engine load timed out')), 30000));
+    try {
+      await Promise.race([ready, failed, timeout]);
+    } catch (e) {
+      try { worker.terminate(); } catch {}
+      worker = null; listeners.clear(); chain = Promise.resolve(); // reset so a retry can re-init cleanly
+      throw e;
+    }
   }
 
   function setMultiPV(n) {
@@ -105,11 +115,13 @@ export function createEngine() {
     return run(() => new Promise((resolve) => {
       const wantMpv = Math.max(1, mpv | 0);
       const best = new Map(); // multipv index -> latest record
+      let terminalMate = false; // a checkmated position emits "score mate 0" with no pv
 
       const collector = (line) => {
         if (line.startsWith('info ')) {
           const rec = parseInfo(line, whiteToMove);
           if (rec && rec.pv.length) best.set(rec.multipv, rec);
+          else if (/\bscore mate 0\b/.test(line)) terminalMate = true;
           return;
         }
         if (line.startsWith('bestmove')) {
@@ -125,7 +137,12 @@ export function createEngine() {
               pv: r.pv,
               depth: r.depth,
             }));
-          const top = lines[0] || { cp: 0, mate: null, bestMove: bm, pv: bm ? [bm] : [], depth };
+          // Terminal position (no legal moves → no pv). Checkmate is decisive for the OTHER side;
+          // stalemate is a draw. Without this, a game-ending mate scored cp 0 → the mating move got
+          // graded a Blunder and the winner's accuracy was dragged down.
+          const top = lines[0] || (terminalMate
+            ? { cp: whiteToMove ? -MATE_CP : MATE_CP, mate: whiteToMove ? -1 : 1, bestMove: null, pv: [], depth }
+            : { cp: 0, mate: null, bestMove: bm, pv: bm ? [bm] : [], depth });
           resolve({
             cp: top.cp,
             mate: top.mate,

@@ -56,7 +56,11 @@ export async function ensureEngine() {
     const e = engineHandle();
     showEngineStatus('Loading engine… (one-time ~7 MB)');
     _enginePromise = e.init().then(() => { hideEngineStatus(); return e; })
-      .catch((err) => { showEngineStatus('Engine failed to load: ' + (err.message || err)); throw err; });
+      .catch((err) => {
+        showEngineStatus('Engine failed to load: ' + (err.message || err), false);
+        _enginePromise = null; _engine = null; // clear so the next attempt re-initializes instead of replaying the rejection
+        throw err;
+      });
   }
   return _enginePromise;
 }

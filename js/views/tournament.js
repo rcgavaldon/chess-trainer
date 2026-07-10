@@ -91,7 +91,13 @@ async function createEvent(name, rosterId, format, namesText) {
   players = players.map((p) => ({ ...p, rating: p.rating == null ? 1000 : p.rating }));
   const baseFormat = format.startsWith('balanced') ? 'balanced' : format;
   const mode = format === 'balanced-mentor' ? 'mentor' : 'fair';
-  const ev = { id: slug(name) + '-' + players.length + '-' + (name.length + typed.length), name, rosterId: rosterId || null, format: baseFormat, mode, players, rounds: [], createdAt: Date.now() };
+  // Unique id — a deterministic name+count id silently overwrote an existing event with the same
+  // name/size. Suffix with time + a free counter so two "Friday Blitz" events never collide.
+  const now = Date.now();
+  let id = slug(name) + '-' + now.toString(36);
+  const existing = events();
+  while (existing[id]) id += '-' + Math.floor(now % 1000);
+  const ev = { id, name, rosterId: rosterId || null, format: baseFormat, mode, players, rounds: [], createdAt: now };
 
   if (format === 'knockout') ev.bracket = knockoutBracket(players);
   else if (format === 'random') ev.rounds = [randomPairRound(players, [])];

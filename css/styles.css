@@ -493,12 +493,15 @@ details.more > summary:hover { color: var(--text); }
   th { font-size: 10.5px; }
 
   /* --- rows --- */
-  /* result · opponent · accuracy · Review/Analyze button — the button is the 5th child and was
-     spilling out of a 3-column grid. Give it its own column; hide the time-control column. */
-  .game-row { grid-template-columns: 42px minmax(0, 1fr) auto auto; gap: 8px; padding: 11px 12px; border-radius: 14px; }
-  .game-row > :nth-child(3) { display: none; }               /* time control */
-  .game-row > :nth-child(4) { font-size: 11px; text-align: right; line-height: 1.15; max-width: 56px; } /* acc / not analyzed */
-  .game-row .opp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Personal "Review your games" list only (.game-list.reviews): result · opponent · accuracy ·
+     Review/Analyze button — the button (5th child) was spilling out of a 3-column grid. SCOPED so
+     the nth-child hide/squeeze doesn't clobber the openings / tournament / lesson lists, which
+     reuse .game-row with their own column layouts. */
+  .game-row { padding: 11px 12px; border-radius: 14px; }
+  .game-list.reviews > .game-row { grid-template-columns: 42px minmax(0, 1fr) auto auto; gap: 8px; }
+  .game-list.reviews > .game-row > :nth-child(3) { display: none; }               /* time control */
+  .game-list.reviews > .game-row > :nth-child(4) { font-size: 11px; text-align: right; line-height: 1.15; max-width: 56px; } /* acc / not analyzed */
+  .game-list.reviews > .game-row .opp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .game-row .btn.small { padding: 8px 12px; font-size: 12.5px; min-height: 0; border-radius: 10px; }
   .lb-row { padding: 13px 14px !important; }
   .focus-row { grid-template-columns: 34px 1fr; gap: 10px; }

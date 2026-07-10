@@ -573,7 +573,7 @@ async function endlessRefill() {
 function drillPuzzle() {
   const p = DR.list[DR.i];
   const theme = p.theme || (p.themes && p.themes[0]);
-  let recorded = false, ratingDelta = null;
+  let recorded = false, ratingDelta = null, firstTryOk = false;
   clear(host);
   const status = h('div', { class: 'puzzle-status' }, theme === 'blunder'
     ? (p.playedSan ? `From your game — you played ${p.playedSan} here and it slipped. Find the stronger move.` : 'From your game — you slipped here. Find the move you missed.')
@@ -582,7 +582,7 @@ function drillPuzzle() {
   const ratingBadge = h('span', { class: 'pill', id: 'pz-rating', style: { fontFamily: 'var(--mono)', fontWeight: 700 } }, `⚡ ${getPuzzleRating()}`);
   const nextBtn = h('button', { class: 'btn small', disabled: true, onclick: () => { DR.i++; if (DR.i >= DR.list.length) { if (DR.endless) return (DR.refill || endlessRefill)(); return (DR.onDone || drawHome)(); } drillPuzzle(); } }, 'Next →');
   const record = (solved, triedUci) => {
-    if (recorded) return; recorded = true;
+    if (recorded) return; recorded = true; firstTryOk = solved;
     DR.attempts++; if (solved) DR.solved++;
     const srs = store.get('puzzles.srs', { themes: {}, puzzles: {} }); recordAttempt(srs, p, { solved }); store.set('puzzles.srs', srs);
     ratingDelta = updatePuzzleRating(p.rating || 1500, solved);
@@ -611,7 +611,9 @@ function drillPuzzle() {
     onSolved: () => {
       record(true);
       status.className = 'puzzle-status ok';
-      status.textContent = `✓ Solved!${ratingDelta ? `  ${ratingDelta.delta >= 0 ? '+' : ''}${ratingDelta.delta} → ${ratingDelta.after}` : ''}`;
+      // Only show the rating change when solved on the FIRST try — after a miss the rating already
+      // dropped, so "✓ Solved! −12" was confusing. A recovered solve just says Solved.
+      status.textContent = `✓ Solved!${firstTryOk && ratingDelta ? `  ${ratingDelta.delta >= 0 ? '+' : ''}${ratingDelta.delta} → ${ratingDelta.after}` : ''}`;
       let keySan = '';
       try { const c = new Chess(p.fen); const m = c.move(toMoveObj(p.solutionMoves[0])); if (m) keySan = m.san; } catch { /* */ }
       const body = theme === 'blunder' && p.playedSan

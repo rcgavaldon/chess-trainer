@@ -288,11 +288,11 @@ function renderReviewOne(i) {
     onWrong: () => { status.textContent = 'Not the move — try again, or reveal it.'; status.className = 'puzzle-status no'; },
     onSolved: () => { status.textContent = '✓ That\'s the move!'; status.className = 'puzzle-status ok'; },
   });
-  clear(side).append(status,
+  clear(side).append(...[status,
     triedSan && !row.solved ? h('div', { class: 'hint tiny', style: { marginTop: '6px' } }, `They played ${triedSan} here — see why it doesn't work, then find the right one.`) : null,
     h('div', { class: 'row', style: { gap: '8px', alignItems: 'center', marginTop: '10px' } },
       h('button', { class: 'btn ghost small', onclick: () => ctrl.hint() }, '💡 Show the move'),
-      h('span', { class: 'hint tiny' }, p.rating ? `level ${p.rating}` : '')));
+      h('span', { class: 'hint tiny' }, p.rating ? `level ${p.rating}` : ''))].filter(Boolean));
 }
 
 // ============================ roster management (collapsed by default) ============================

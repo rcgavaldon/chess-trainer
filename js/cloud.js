@@ -43,11 +43,14 @@ function normalizeStudent(s) {
   const row = {
     username: (s.username || s.u || '').toLowerCase(), name: s.name || s.u || '',
     group_id: s.group_id || s.g || 'ms', coach: (s.coach || '').toLowerCase(), role: s.role || 'student',
-    ladder_rating: s.ladder_rating ?? null, chesscom_rating: s.chesscom_rating ?? null,
     updated_at: new Date().toISOString(),
   };
-  // Only include USCF fields when the caller actually has them — merge-upserts REPLACE provided
-  // columns, so sending null here would wipe an ID a student/coach saved from another device.
+  // Merge-upserts REPLACE every provided column, so a null wipes what another device wrote. Only
+  // include a field when we actually have a value — otherwise a roster sync before "Update ratings"
+  // (CS.forms empty) would blank out chesscom_rating (the daily cron writes it) + ladder_rating +
+  // a saved USCF id across the shared table.
+  if (s.ladder_rating != null) row.ladder_rating = s.ladder_rating;
+  if (s.chesscom_rating != null) row.chesscom_rating = s.chesscom_rating;
   if (s.uscf_id != null) row.uscf_id = s.uscf_id;
   if (s.uscf_rating != null) row.uscf_rating = s.uscf_rating;
   return row;

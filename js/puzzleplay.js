@@ -18,7 +18,11 @@ export function mountPuzzle(el, puzzle, opts = {}) {
   function onMove(orig, dest) {
     if (done) return;
     const piece = chess.get(orig);
-    const promo = piece && piece.type === 'p' && (dest[1] === '8' || dest[1] === '1') ? 'q' : undefined;
+    const isPromo = piece && piece.type === 'p' && (dest[1] === '8' || dest[1] === '1');
+    // Default to queen, but if the puzzle's solution move here is an UNDER-promotion, honor it —
+    // otherwise a knight/rook/bishop-promotion puzzle would be impossible to input.
+    const expected = puzzle.solutionMoves[idx] || '';
+    const promo = isPromo ? (expected.slice(0, 4) === orig + dest && /[nrbq]/i.test(expected[4] || '') ? expected[4].toLowerCase() : 'q') : undefined;
     const uci = orig + dest + (promo || '');
     if (checkMove(puzzle, idx, uci)) {
       chess.move({ from: orig, to: dest, promotion: promo });
