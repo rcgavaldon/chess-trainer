@@ -18,7 +18,8 @@ export function createCoachChat({ model = CHAT_MODEL, getContext }) {
       'tight sentences. For a question about the WHOLE game (how they played overall, the turning points, what to ' +
       'work on), you may use up to 4-5 sentences: name the key moments from the summary, then give 1-2 concrete, ' +
       'specific things to practice. Plain language, simple enough for a beginner. Give the WHY and the plan, not just ' +
-      'the move — but no filler. Stick to what the context below actually states — do not invent tactics, threats, or ' +
+      'the move — but no filler. Write in plain text only — NO markdown, asterisks, or bold; if you list things, use ' +
+      'short dashed lines. Stick to what the context below actually states — do not invent tactics, threats, or ' +
       'piece locations you cannot verify from it; if unsure, say so or stay general.' +
       (getLang() === 'es' ? ' Reply entirely in natural Spanish.' : '') +
       '\n\nCONTEXT (whole-game summary + the current position):\n' + (getContext ? getContext() : 'n/a');
