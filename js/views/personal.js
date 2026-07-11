@@ -842,8 +842,8 @@ function renderReview(game, analysis) {
   const accW = useCC ? Math.round(cc.white) : analysis.accuracy.white;
   const accB = useCC ? Math.round(cc.black) : analysis.accuracy.black;
   const accBar = h('div', { class: 'accbar card', style: { padding: '12px 16px' } },
-    accSide('White', accW), accSide('Black', accB),
-    h('div', { class: 'hint', style: { marginLeft: 'auto', textAlign: 'right' } }, useCC ? 'Chess.com accuracy' : `engine accuracy · depth ${analysis.depth}`));
+    accSide('White', accW, estRatingFromAcc(accW)), accSide('Black', accB, estRatingFromAcc(accB)),
+    h('div', { class: 'hint', style: { marginLeft: 'auto', textAlign: 'right' } }, useCC ? 'Chess.com accuracy · est. level' : `engine accuracy · depth ${analysis.depth} · est. level`));
 
   const explainBox = h('div', { class: 'explain-box', id: 'explain' });
   const moveList = h('div', { class: 'movelist', id: 'movelist' });
@@ -918,7 +918,11 @@ function renderReview(game, analysis) {
   buildMoveList(moveList, analysis, keyPlies);
   stepTo(0);
   attachKeys();
-  mountChat(document.getElementById('review-chat'), { getContext: reviewContext, starter: 'Ask about this move…' });
+  mountChat(document.getElementById('review-chat'), {
+    getContext: reviewContext,
+    starter: 'Ask about this move — or the whole game…',
+    quickAsks: [{ label: '🧠 Review my whole game', text: 'Give me an overall coach\'s review of my whole game — how I played, the turning points, and the top 1-2 things I should work on from this game.' }],
+  });
 }
 
 // ---------------- US Chess tournament history (optional, via profile.uscfId) ----------------
@@ -1012,8 +1016,24 @@ export function uscfCard(uscfId, username) {
   return card;
 }
 
-function accSide(name, v) {
-  return h('div', {}, h('div', { class: 'acc', style: { color: v == null ? 'var(--muted)' : accColor(v) } }, pct(v)), h('div', { class: 'who' }, name + ' accuracy'));
+// Estimate the Elo "level" a given accuracy was played at — a monotonic, transparent map
+// calibrated to typical Chess.com accuracy→club-rating. It's an ESTIMATE (accuracy runs high in
+// quiet games, low in sharp ones), so it's always labelled "≈ … level".
+function estRatingFromAcc(acc) {
+  if (acc == null) return null;
+  const pts = [[50, 400], [60, 700], [65, 900], [70, 1050], [75, 1250], [80, 1450], [84, 1650], [88, 1850], [92, 2050], [95, 2250], [98, 2500], [100, 2700]];
+  if (acc <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (acc <= pts[i][0]) { const [a0, r0] = pts[i - 1], [a1, r1] = pts[i]; return Math.round(r0 + (r1 - r0) * (acc - a0) / (a1 - a0)); }
+  }
+  return pts[pts.length - 1][1];
+}
+
+function accSide(name, v, est) {
+  return h('div', {},
+    h('div', { class: 'acc', style: { color: v == null ? 'var(--muted)' : accColor(v) } }, pct(v)),
+    h('div', { class: 'who' }, name + ' accuracy'),
+    est != null ? h('div', { class: 'est-rating', title: 'Estimated playing level for this game, from accuracy' }, `≈ ${est} level`) : null);
 }
 
 function plural(lbl, n) {
@@ -1193,13 +1213,43 @@ function jumpToNextMistake() {
   for (let i = 0; i < a.plies.length; i++) if (bad.includes(a.plies[i].label)) return stepTo(i + 1); // wrap around
 }
 
+// A stable whole-game summary so the coach can answer questions about the ENTIRE game — how they
+// played, the turning points, what to work on — not just the move under the cursor.
+function gameOverviewContext() {
+  const a = R.analysis, g = R.game;
+  if (!a || !a.plies || !a.plies.length) return '';
+  const mine = g.userColor;
+  const cc = g.accuracies;
+  const useCC = cc && cc.white != null && cc.black != null;
+  const accW = useCC ? Math.round(cc.white) : a.accuracy.white;
+  const accB = useCC ? Math.round(cc.black) : a.accuracy.black;
+  const myAcc = mine === 'white' ? accW : accB, oppAcc = mine === 'white' ? accB : accW;
+  const count = (isMine, lbl) => a.plies.filter((p) => (p.color === mine) === isMine && p.label === lbl).length;
+  const myQuality = ['Blunder', 'Mistake', 'Inaccuracy', 'Miss', 'Great', 'Brilliant']
+    .map((l) => { const n = count(true, l); return n ? `${n} ${l.toLowerCase()}${n === 1 ? '' : 's'}` : null; }).filter(Boolean).join(', ') || 'nothing notably good or bad';
+  const km = keyMoments(a).map((m) => `${m.moveNumber}${m.color === 'white' ? '.' : '…'} ${m.san} (${m.label})`).join('; ');
+  const result = g.userResult === 'win' ? 'won' : g.userResult === 'loss' ? 'lost' : 'drew';
+  const est = estRatingFromAcc(myAcc);
+  return 'WHOLE-GAME SUMMARY (use this for any question about the game overall):\n' +
+    `The player is ${mine} and ${result} vs ${g.opponent}. ${gameNarrative(g, a)}\n` +
+    `Accuracy — player ${pct(myAcc)}${est ? ` (played around a ${est} level)` : ''}, opponent ${pct(oppAcc)}.\n` +
+    `The player's move quality this game: ${myQuality}.\n` +
+    (km ? `Turning points / key moves: ${km}.\n` : '') +
+    `The game lasted about ${Math.ceil(a.plies.length / 2)} moves.\n`;
+}
+
 function reviewContext() {
   const a = R.analysis, ply = R.ply, g = R.game;
   if (!a) return 'No game loaded.';
-  if (ply === 0) return `Game: ${g.userColor} (the player) vs ${g.opponent}. Starting position.`;
-  const p = a.plies[ply - 1];
-  return `The player is ${g.userColor}. Position after ${p.moveNumber}${p.color === 'white' ? '.' : '…'} ${p.san} (FEN: ${p.fenAfter}). ` +
-    `That move was graded "${p.label}"${p.winLoss >= 1 ? ` (lost ~${p.winLoss}% win chance)` : ''}. The engine preferred ${p.bestSan || 'n/a'}. Coach note: ${p.explanation}`;
+  const overview = gameOverviewContext();
+  const pos = ply === 0
+    ? 'CURRENT POSITION: the starting position, before any moves.'
+    : (() => {
+        const p = a.plies[ply - 1];
+        return `CURRENT POSITION: after ${p.moveNumber}${p.color === 'white' ? '.' : '…'} ${p.san} (FEN: ${p.fenAfter}). ` +
+          `That move was graded "${p.label}"${p.winLoss >= 1 ? ` (lost ~${p.winLoss}% win chance)` : ''}. The engine preferred ${p.bestSan || 'n/a'}. Coach note: ${p.explanation}`;
+      })();
+  return `The player is ${g.userColor} vs ${g.opponent}.\n${overview}\n${pos}`;
 }
 
 function flipBoard() { R.orientation = R.orientation === 'white' ? 'black' : 'white'; R.ground.set({ orientation: R.orientation }); }

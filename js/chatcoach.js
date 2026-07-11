@@ -13,20 +13,21 @@ export function createCoachChat({ model = CHAT_MODEL, getContext }) {
   async function ask(userText, onDelta) {
     history.push({ role: 'user', content: userText });
     const system =
-      'You are a friendly, patient chess coach in a back-and-forth conversation with an improving player. ' +
-      'Answer in 1-2 short sentences (only go longer if the question genuinely needs it), plain language, simple ' +
-      'enough for a beginner, specific to the position. Give the WHY and the plan, not just the move — but keep it ' +
-      'tight, no filler. If they go off-topic, gently steer back to the chess in front of you. ' +
-      'Stick to what the position context below actually states — do not invent tactics, threats, or ' +
+      'You are a friendly, patient chess coach in a back-and-forth conversation with an improving player about the ' +
+      'game or puzzle in front of them. For a question about a specific move or the current position, answer in 1-2 ' +
+      'tight sentences. For a question about the WHOLE game (how they played overall, the turning points, what to ' +
+      'work on), you may use up to 4-5 sentences: name the key moments from the summary, then give 1-2 concrete, ' +
+      'specific things to practice. Plain language, simple enough for a beginner. Give the WHY and the plan, not just ' +
+      'the move — but no filler. Stick to what the context below actually states — do not invent tactics, threats, or ' +
       'piece locations you cannot verify from it; if unsure, say so or stay general.' +
       (getLang() === 'es' ? ' Reply entirely in natural Spanish.' : '') +
-      '\n\nCURRENT POSITION CONTEXT:\n' + (getContext ? getContext() : 'n/a');
+      '\n\nCONTEXT (whole-game summary + the current position):\n' + (getContext ? getContext() : 'n/a');
     const ep = coachEndpoint();
     if (!ep.headers) { history.pop(); throw new Error('Coach unavailable'); }
     const res = await fetch(ep.url, {
       method: 'POST',
       headers: ep.headers,
-      body: JSON.stringify({ model, max_tokens: 350, system, stream: true, messages: history.slice(-12) }),
+      body: JSON.stringify({ model, max_tokens: 500, system, stream: true, messages: history.slice(-12) }),
     });
     if (!res.ok || !res.body) {
       history.pop();
@@ -61,8 +62,9 @@ export function createCoachChat({ model = CHAT_MODEL, getContext }) {
   return { ask, history, reset() { history.length = 0; } };
 }
 
-// mountChat(el, { getContext, starter }) — renders a chat box bound to the position context.
-export function mountChat(el, { getContext, starter } = {}) {
+// mountChat(el, { getContext, starter, quickAsks }) — renders a chat box bound to the context.
+// quickAsks: [{ label, text }] one-tap prompts (e.g. "Review my whole game").
+export function mountChat(el, { getContext, starter, quickAsks } = {}) {
   clear(el);
   if (!coachEnabled()) {
     el.append(h('div', { class: 'hint tiny' }, '💬 Add your Anthropic API key in ⚙ Settings to chat with the coach about this position.'));
@@ -72,7 +74,13 @@ export function mountChat(el, { getContext, starter } = {}) {
   const log = h('div', { class: 'chatlog' });
   const input = h('input', { type: 'text', placeholder: starter || 'Ask the coach… e.g. "why is that better?"', onkeydown: (e) => { if (e.key === 'Enter') send(); } });
   const sendBtn = h('button', { class: 'btn small', onclick: () => send() }, 'Ask');
-  el.append(h('div', { class: 'chatbox' }, log, h('div', { class: 'row', style: { marginTop: '8px' } }, input, sendBtn)));
+  const box = h('div', { class: 'chatbox' }, log);
+  if (quickAsks && quickAsks.length) {
+    box.append(h('div', { class: 'chip-row', style: { margin: '4px 0 8px' } },
+      ...quickAsks.map((qa) => h('button', { class: 'chip', onclick: () => send(qa.text) }, qa.label))));
+  }
+  box.append(h('div', { class: 'row', style: { marginTop: '8px' } }, input, sendBtn));
+  el.append(box);
 
   function bubble(role, text) {
     const b = h('div', { class: 'chat-msg ' + role }, text);
@@ -80,10 +88,10 @@ export function mountChat(el, { getContext, starter } = {}) {
     log.scrollTop = log.scrollHeight;
     return b;
   }
-  async function send() {
-    const q = input.value.trim();
+  async function send(preset) {
+    const q = (typeof preset === 'string' ? preset : input.value).trim();
     if (!q) return;
-    input.value = '';
+    if (typeof preset !== 'string') input.value = '';
     bubble('user', q);
     const a = bubble('coach', '…');
     sendBtn.disabled = true;
