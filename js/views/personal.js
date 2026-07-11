@@ -851,6 +851,7 @@ function gameRow(g, older) {
     h('div', { class: 'res ' + g.userResult }, g.userResult === 'win' ? 'Win' : g.userResult === 'loss' ? 'Loss' : 'Draw'),
     h('div', { class: 'grow-main' },
       h('div', { class: 'grow-top' }, h('span', { class: 'opp' }, 'vs ', g.opponent),
+        g.oppRating != null ? h('span', { class: 'meta' }, ' (' + g.oppRating + ')') : null,
         h('span', { class: 'meta' }, ` · ${TC_LABEL[g.timeClass] || g.timeClass} · ${fmtDate(g.dateUTC)}`)),
       h('div', { class: 'grow-stats' },
         h('span', { class: 'grow-rt' }, before != null ? `${before} → ${after}` : `${after ?? '—'}`,
