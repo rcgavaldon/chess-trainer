@@ -6,6 +6,11 @@ import { getLang } from './i18n.js';
 
 const CHAT_MODEL = 'claude-sonnet-4-6'; // better reasoning for a coaching conversation
 
+// The chat bubble is plain text, but the model still tends to emit markdown (bold **…**, #
+// headers, `code`) — especially on a longer whole-game review. Strip the markers so it reads
+// clean. Runs on every streamed frame, so it also tidies a mid-stream unclosed ** marker.
+const cleanCoach = (s) => (s || '').replace(/\*\*/g, '').replace(/`+/g, '').replace(/^#{1,6}\s+/gm, '');
+
 // createCoachChat({ getContext }) -> { ask(text, onDelta) , history, reset() }
 // getContext() returns a fresh string describing the current position/move/puzzle.
 export function createCoachChat({ model = CHAT_MODEL, getContext }) {
@@ -98,7 +103,7 @@ export function mountChat(el, { getContext, starter, quickAsks } = {}) {
     sendBtn.disabled = true;
     try {
       let started = false;
-      await chat.ask(q, (_d, full) => { if (!started) { a.textContent = ''; started = true; } a.textContent = full; log.scrollTop = log.scrollHeight; });
+      await chat.ask(q, (_d, full) => { if (!started) { a.textContent = ''; started = true; } a.textContent = cleanCoach(full); log.scrollTop = log.scrollHeight; });
     } catch (e) { a.textContent = '⚠ ' + e.message; }
     finally { sendBtn.disabled = false; input.focus(); }
   }
