@@ -392,12 +392,13 @@ function leaderboardPeek() {
 // history, AI coach's note) lives one tap away in the "See everything" drawer.
 function renderReport(area, R) {
   area.append(heroCard(R));
+  // US Chess tournament results, up top and prominent (self-removes when the player has no ID).
+  const uc = uscfCard(null, S.username); if (uc) area.append(uc);
   area.append(focusPlanCard(R));
   renderSkills(area, R.dims);
   const lb = leaderboardPeek(); if (lb) area.append(lb);
   area.append(gamesDetails());
   renderBadges(area, badgeData(R.myGames, R.eloPoints));
-  const uc = uscfCard(null, S.username); if (uc) area.append(uc);
   area.append(everythingDrawer(R));
 }
 
@@ -607,7 +608,7 @@ function persistFocus(analyses, today) {
 function gamesDetails() {
   return h('div', { id: 'games-section', class: 'card section' },
     h('h2', {}, '🎬 Review your games'),
-    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '10px' } }, 'Click any game to play it back move by move — accuracy, the key moments, and exactly where it turned. This is your free game review.'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '10px' } }, 'Tap a game to replay it move by move and see exactly where it turned.'),
     gameListEl());
 }
 
@@ -763,11 +764,12 @@ async function doImport() {
 function gameListEl() {
   const wrap = h('div', {});
   const list = h('div', { class: 'game-list reviews' }); // .reviews scopes the mobile 4-col layout
-  for (const g of S.games.slice(0, 25)) {
+  const _games = S.games.slice(0, 25);
+  _games.forEach((g, i) => {
     const a = S.analyses[g.url];
     const ccAcc = g.accuracies && g.accuracies[g.userColor] != null ? Math.round(g.accuracies[g.userColor]) : null;
     const acc = a ? a.accuracy[g.userColor] : ccAcc;
-    list.append(h('div', { class: 'game-row', onclick: () => openReview(g) },
+    list.append(h('div', { class: 'game-row' + (i >= 8 ? ' gr-hidden' : ''), onclick: () => openReview(g) },
       h('div', { class: 'res ' + g.userResult }, g.userResult === 'win' ? 'Win' : g.userResult === 'loss' ? 'Loss' : 'Draw'),
       h('div', {},
         h('div', { class: 'opp' }, 'vs ', g.opponent),
@@ -776,8 +778,12 @@ function gameListEl() {
       h('div', {}, acc != null ? h('span', { class: 'acc-badge', style: { color: accColor(acc) } }, pct(acc) + ' acc') : h('span', { class: 'hint tiny' }, 'not analyzed')),
       h('button', { class: 'btn small ghost', onclick: (e) => { e.stopPropagation(); openReview(g); } }, a ? 'Review' : 'Analyze'),
     ));
-  }
+  });
   wrap.append(list);
+  if (_games.length > 8) {
+    const more = h('button', { class: 'btn ghost small', style: { marginTop: '10px' }, onclick: () => { list.querySelectorAll('.gr-hidden').forEach((r) => r.classList.remove('gr-hidden')); more.remove(); } }, `Show all ${_games.length} games →`);
+    wrap.append(more);
+  }
   return wrap;
 }
 
@@ -940,7 +946,7 @@ export function uscfCard(uscfId, username) {
   let id = String(uscfId || (isOwner ? store.get('profile.uscfId', '') : '')).trim();
   const body = h('div', { class: 'hint tiny' }, 'Loading tournaments…');
   const refresh = h('button', { class: 'btn ghost small', onclick: () => load(true) }, '↻ Refresh');
-  const card = h('div', { class: 'card section' },
+  const card = h('div', { class: 'card section uscf-card' },
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center' } },
       h('h2', { style: { margin: 0 } }, '🏅 US Chess tournaments'), refresh),
     body);

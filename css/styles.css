@@ -141,6 +141,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .game-row .opp { font-weight: 600; }
 .game-row .meta { color: var(--muted); font-size: 12.5px; }
 .acc-badge { font-weight: 800; font-size: 14px; font-family: var(--mono); }
+.game-row.gr-hidden { display: none; }
 
 /* ---- review layout ---- */
 .review { display: grid; grid-template-columns: 30px 480px 1fr; gap: 18px; align-items: start; }
@@ -353,6 +354,12 @@ details.more > summary:hover { color: var(--text); }
 .lbp-you { background: var(--accent); color: var(--accent-ink); font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px; margin-left: 8px; text-transform: uppercase; letter-spacing: .4px; }
 .lbp-rt { font-family: var(--mono); font-weight: 800; font-size: 16px; }
 .lbp-gap { text-align: center; color: var(--faint); font-size: 14px; letter-spacing: 2px; }
+
+/* ---- US Chess tournaments — prominent trophy-gold treatment (real-world results) ---- */
+.uscf-card { border-color: rgba(231, 177, 74, .5);
+  box-shadow: 0 0 0 1px rgba(231, 177, 74, .16), var(--shadow);
+  background: linear-gradient(160deg, rgba(231, 177, 74, .12), var(--surface) 58%); }
+.uscf-card > .row h2 { color: var(--warn); }
 
 /* ---- opening explorer ---- */
 .ex-move { display: grid; grid-template-columns: 58px 1fr 90px; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; transition: background .12s; }
