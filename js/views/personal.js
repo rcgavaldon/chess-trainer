@@ -52,7 +52,7 @@ function trainAllWeak(focus) {
   CTX.navigate('train');
 }
 
-const S = { username: '', timeClass: null, games: [], analyses: {} }; // analyses keyed by game.url; timeClass null = auto-pick primary
+const S = { username: '', timeClass: null, gamesTC: null, games: [], analyses: {} }; // analyses keyed by game.url; timeClass null = auto-pick primary; gamesTC = category shown in the games list
 let CTX = null;
 let host = null; // main container
 let pendingImport = null;
@@ -187,7 +187,7 @@ async function drawReport() {
   const scope = S.timeClass || primaryTC(allMine);
   S.timeClass = scope;
   const scopedAll = scope === 'all' ? allMine : allMine.filter((g) => g.timeClass === scope);
-  const myGames = scopedAll.slice(0, 100); // the last ~100 games in THIS category
+  const myGames = scopedAll.slice(0, 50); // stats window = the last 50 games in THIS category
   const scopeName = TC_LABEL[scope] || scope;
 
   clear(area);
@@ -497,42 +497,97 @@ function focusPlanCard(R) {
 
 // "See everything" — the optional deep dive. Rendered lazily on first open so it costs nothing
 // until a coach (or a curious kid) actually wants all the numbers.
+// "See everything" — the optional deep dive, trimmed to the findings that matter plus a coach you
+// can actually talk to. Rendered lazily on first open.
 function everythingDrawer(R) {
-  const d = h('details', { class: 'more' }, h('summary', {}, '📂 See everything — all your numbers'));
+  const d = h('details', { class: 'more' }, h('summary', {}, '📂 See everything — your full breakdown'));
   const body = h('div', {});
   d.append(body);
   d.addEventListener('toggle', () => {
     if (!d.open || d._rendered) return;
     d._rendered = true;
+    accountCoachCard(body, R);                                   // talk to the coach about ALL your games
+    keyFindingsCard(body, R);                                    // the few numbers that matter
+    renderByTimeControl(body, byTimeControl(R.myGames, R.analyses));
+    openingsCard(body, R.I);
     if (R.eloPoints && R.eloPoints.length >= 3) renderRatingHistory(body, R.eloPoints, R.scope === 'all' ? null : R.scopeName);
     body.append(progressCard(S.username));
-    body.append(reportCard(R.allMine));
-    renderByTimeControl(body, byTimeControl(R.myGames, R.analyses));
-    if (R.analyses.length) {
-      const I = computeInsights(R.analyses, S.username);
-      const rating = I.ratingAvg;
-      const peer = BENCHMARKS && rating ? comparePeers(I, rating, BENCHMARKS) : null;
-      renderImprove(body, { insights: I, peer, plan: improvementPlan(I, peer), byTC: null, onTrain: () => CTX.navigate('train') });
-    }
-    if (!R.student) maybeCoachNote(body, R);
   });
   return d;
 }
 
-// Optional Claude-written coach's note (owner/coach only) — inside the drawer, on demand.
-function maybeCoachNote(host, R) {
-  if (!coachEnabled()) return;
+// A coach chat with the WHOLE account in context — recommends a game plan and names the patterns
+// it sees across every game. Available to everyone (kids love it too).
+function accountCoachCard(host, R) {
+  const card = h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18)' } },
+    h('h2', {}, '💬 Ask your coach anything'),
+    h('div', { class: 'hint tiny', style: { marginTop: '-6px', marginBottom: '10px' } }, 'It sees all your recent stats — ask for a game plan or what patterns keep showing up across your games.'));
+  const chatEl = h('div', {});
+  card.append(chatEl);
+  host.append(card);
+  mountChat(chatEl, {
+    getContext: () => accountContext(R),
+    starter: 'Ask your coach… e.g. "what should I focus on?"',
+    quickAsks: [
+      { label: '🗺️ Recommend my game plan', text: 'Based on all my recent games and stats, recommend a focused game plan: what to work on first, why, and how to practice it.' },
+      { label: '🔍 Patterns across my games', text: 'What recurring patterns and mistakes do you see across all of my games? Be specific and concrete.' },
+    ],
+  });
+}
+
+// Everything the account-level coach needs to reason about the player across all their games.
+function accountContext(R) {
+  const I = R.I || {}, dims = R.dims || [];
+  const name = store.get('profile.ownerName', '') || S.username;
+  const rating = R.myGames[0]?.userRating ?? I.ratingAvg;
+  const dimStr = dims.filter((d) => !d.bonus).map((d) => `${d.name} ${d.score}`).join(', ');
+  const focusStr = (R.focus || []).slice(0, 4).map((f) => `${f.label} (${f.why})`).join('; ');
+  const ops = (I.openings || []).filter((o) => o.name !== 'Unknown' && o.games >= 2);
+  const weakOpen = ops.slice().sort((a, b) => a.scorePct - b.scorePct).slice(0, 3).map((o) => `${o.name} ${o.scorePct}%`).join(', ');
+  const phase = I.phaseLossRanked?.[0]?.phase;
+  const mistakes = (I.mistakeTypesRanked || []).slice(0, 3).map((m) => MISTAKE_LABEL[m.type] || m.type).join(', ');
+  const t = ratingTrend(R.eloPoints);
+  const conv = I.conversion || {};
+  const convWin = conv.winningReached ? Math.round(100 * conv.winningConverted / conv.winningReached) + '%' : 'n/a';
+  const convSave = conv.losingReached ? Math.round(100 * conv.losingSaved / conv.losingReached) + '%' : 'n/a';
+  return 'FULL ACCOUNT SUMMARY (all of the player\'s recent stats — use this to recommend a concrete game plan and to spot patterns across ALL their games):\n' +
+    `Player: ${name}, rated ${rating ?? '?'} (${R.scope === 'all' ? 'overall' : R.scopeName}). ${I.games || 0} recent games analyzed, record ${R.record.w}-${R.record.l}-${R.record.d} (${winPctOf(R.record)}% score), rating ${t.word}.\n` +
+    `Average accuracy ${I.accAvg ?? '?'}%, about ${I.rates?.blundersPerGame ?? '?'} blunders per game, first big mistake around move ${I.firstBlunderMove || '?'}.\n` +
+    `Skill scores 0-100: ${dimStr || 'n/a'}.\n` +
+    `Biggest weaknesses in order: ${focusStr || 'n/a'}.\n` +
+    `Weakest game phase: ${phase || 'n/a'}. Most common mistakes: ${mistakes || 'n/a'}.\n` +
+    (weakOpen ? `Openings they score worst in: ${weakOpen}.\n` : '') +
+    `Converts winning positions ${convWin}; saves lost positions ${convSave}.\n`;
+}
+
+const MISTAKE_LABEL = { hang: 'hanging pieces', missed: 'missed tactics', kingsafety: 'king safety', opening: 'opening errors', fork: 'allowing forks', freecap: 'free captures', fallback: 'other', other: 'other' };
+const capWord = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+// The few numbers that actually matter — the exhaustive tables (peer grid, conversion, color split,
+// time stats) are gone; ask the coach chat above for anything deeper.
+function keyFindingsCard(host, R) {
   const I = R.I;
-  const peer = BENCHMARKS && I.ratingAvg ? comparePeers(I, I.ratingAvg, BENCHMARKS) : null;
-  const plan = improvementPlan(I, peer);
-  if (!plan.length) return;
-  const note = h('div', { class: 'why', style: { color: 'var(--accent-2)', marginTop: '8px' } });
-  const btn = h('button', { class: 'btn ghost small', onclick: async () => {
-    btn.disabled = true; btn.textContent = 'Writing…';
-    try { const txt = await coachPlan({ username: S.username, insights: I, actions: plan }); note.textContent = '💬 ' + (txt || ''); btn.remove(); }
-    catch (e) { note.textContent = '⚠ ' + e.message; btn.disabled = false; btn.textContent = '💬 Get a coach\'s note'; }
-  } }, '💬 Get a coach\'s note');
-  host.append(h('div', { class: 'card section' }, h('h2', {}, 'Coach\'s note'), btn, note));
+  if (!I || !I.games) return;
+  const stat = (k, v, sub) => h('div', { class: 'stat' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v ?? '—'), sub ? h('div', { class: 'hint tiny' }, sub) : null);
+  const phase = I.phaseLossRanked?.[0];
+  const mistake = I.mistakeTypesRanked?.[0];
+  host.append(h('div', { class: 'card section' },
+    h('h2', {}, '🔑 Key findings'),
+    h('div', { class: 'stat-grid' },
+      stat('Avg accuracy', I.accAvg != null ? I.accAvg + '%' : '—'),
+      stat('Blunders / game', I.rates?.blundersPerGame),
+      stat('First slip', I.firstBlunderMove ? 'move ' + I.firstBlunderMove : '—', 'on average'),
+      stat('Weakest phase', phase ? capWord(phase.phase) : '—', 'where you lose most'),
+      stat('Top mistake', mistake ? (MISTAKE_LABEL[mistake.type] || mistake.type) : '—'))));
+}
+
+// Openings table (kept — genuinely useful for study).
+function openingsCard(host, I) {
+  const ops = ((I && I.openings) || []).filter((o) => o.name !== 'Unknown').slice(0, 6);
+  if (!ops.length) return;
+  host.append(h('div', { class: 'card section' }, h('h2', {}, '📖 Openings'),
+    h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Opening'), h('th', {}, 'Games'), h('th', {}, 'Score'), h('th', {}, 'Accuracy'))),
+      h('tbody', {}, ...ops.map((o) => h('tr', {}, h('td', {}, o.name), h('td', {}, o.games), h('td', {}, `${o.w}-${o.l}-${o.d} (${o.scorePct}%)`), h('td', { style: { color: accColor(o.acc) } }, o.acc != null ? pct(o.acc) : '—')))))));
 }
 
 function badgeData(myGames, eloPoints) {
@@ -606,10 +661,29 @@ function persistFocus(analyses, today) {
 }
 
 function gamesDetails() {
-  return h('div', { id: 'games-section', class: 'card section' },
-    h('h2', {}, '🎬 Review your games'),
-    h('div', { class: 'hint tiny', style: { marginTop: '-4px', marginBottom: '10px' } }, 'Tap a game to replay it move by move and see exactly where it turned.'),
-    gameListEl());
+  const card = h('div', { id: 'games-section', class: 'card section' });
+  renderGamesInto(card);
+  return card;
+}
+
+// The games list: a category picker (defaults to most-played) showing the 3 most recent, with a
+// one-tap "show more". Each row carries the rating before→after, accuracy, and estimated level.
+function renderGamesInto(card) {
+  clear(card);
+  const u = (S.username || '').toLowerCase();
+  const mine = S.games.filter((g) => (g.username || '').toLowerCase() === u);
+  const counts = {}; for (const g of mine) counts[g.timeClass] = (counts[g.timeClass] || 0) + 1;
+  const cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  if (!S.gamesTC || (S.gamesTC !== 'all' && !counts[S.gamesTC])) S.gamesTC = cats[0] || 'all';
+  const cat = S.gamesTC;
+  const catGames = cat === 'all' ? mine : mine.filter((g) => g.timeClass === cat);
+  const sel = h('select', { class: 'games-cat', onchange: (e) => { S.gamesTC = e.target.value; renderGamesInto(card); } },
+    ...[...cats, 'all'].map((c) => h('option', { value: c, selected: c === cat }, c === 'all' ? `All (${mine.length})` : `${TC_LABEL[c] || c} (${counts[c]})`)));
+  card.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '10px' } },
+      h('h2', { style: { margin: 0 } }, '🎬 Review your games'), sel),
+    h('div', { class: 'hint tiny', style: { margin: '2px 0 12px' } }, 'Tap a game to replay it move by move and see exactly where it turned.'),
+    gameListEl(catGames));
 }
 
 function breakdownDetails(analyses, myGames) {
@@ -750,10 +824,12 @@ async function doImport() {
   const area = document.getElementById('report-area');
   if (area) clear(area).append(h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading your games…'));
   try {
-    const games = await cc.fetchRecentGames(username, { months: 18, timeClass: 'all', limit: 320 });
+    // Pull a wide window so each category has ~50 games for stats (or all available if fewer).
+    const games = await cc.fetchRecentGames(username, { months: 24, timeClass: 'all', limit: 500 });
     games.forEach((g) => (g.username = username));
     S.games = games;
     S.timeClass = null; // re-pick the primary time control for this player
+    S.gamesTC = null;   // re-pick the games-list category (most-played)
     if (games.length) { await preloadCached(); drawHome(); }
     else if (area) clear(area).append(h('div', { class: 'empty' }, `No games found for “${username}”.`));
   } catch (e) {
@@ -761,27 +837,40 @@ async function doImport() {
   }
 }
 
-function gameListEl() {
+// One rich game row: result, opponent + date, the player's rating before->after (delta vs the
+// next-older game in the same list), accuracy, and the estimated level for that game.
+function gameRow(g, older) {
+  const a = S.analyses[g.url];
+  const ccAcc = g.accuracies && g.accuracies[g.userColor] != null ? Math.round(g.accuracies[g.userColor]) : null;
+  const acc = a ? Math.round(a.accuracy[g.userColor]) : ccAcc;
+  const est = acc != null ? estRatingFromAcc(acc) : null;
+  const after = g.userRating, before = older ? older.userRating : null;
+  const delta = (before != null && after != null) ? after - before : null;
+  const dCol = delta > 0 ? 'var(--good)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
+  return h('div', { class: 'grow', onclick: () => openReview(g) },
+    h('div', { class: 'res ' + g.userResult }, g.userResult === 'win' ? 'Win' : g.userResult === 'loss' ? 'Loss' : 'Draw'),
+    h('div', { class: 'grow-main' },
+      h('div', { class: 'grow-top' }, h('span', { class: 'opp' }, 'vs ', g.opponent),
+        h('span', { class: 'meta' }, ` · ${TC_LABEL[g.timeClass] || g.timeClass} · ${fmtDate(g.dateUTC)}`)),
+      h('div', { class: 'grow-stats' },
+        h('span', { class: 'grow-rt' }, before != null ? `${before} → ${after}` : `${after ?? '—'}`,
+          delta != null ? h('b', { style: { color: dCol, marginLeft: '5px' } }, `${delta >= 0 ? '▲' : '▼'}${Math.abs(delta)}`) : null),
+        acc != null ? h('span', { style: { color: accColor(acc) } }, `${acc}% acc`) : h('span', { class: 'hint tiny' }, 'not analyzed'),
+        est != null ? h('span', { class: 'grow-est' }, `≈${est}`) : null)),
+    h('button', { class: 'btn small ghost', onclick: (e) => { e.stopPropagation(); openReview(g); } }, a ? 'Review' : 'Analyze'));
+}
+
+// Condensed: the 3 most recent, with a "show more" that reveals the rest (capped at 25).
+function gameListEl(games) {
   const wrap = h('div', {});
-  const list = h('div', { class: 'game-list reviews' }); // .reviews scopes the mobile 4-col layout
-  const _games = S.games.slice(0, 25);
-  _games.forEach((g, i) => {
-    const a = S.analyses[g.url];
-    const ccAcc = g.accuracies && g.accuracies[g.userColor] != null ? Math.round(g.accuracies[g.userColor]) : null;
-    const acc = a ? a.accuracy[g.userColor] : ccAcc;
-    list.append(h('div', { class: 'game-row' + (i >= 8 ? ' gr-hidden' : ''), onclick: () => openReview(g) },
-      h('div', { class: 'res ' + g.userResult }, g.userResult === 'win' ? 'Win' : g.userResult === 'loss' ? 'Loss' : 'Draw'),
-      h('div', {},
-        h('div', { class: 'opp' }, 'vs ', g.opponent),
-        h('div', { class: 'meta' }, `${g.userColor} · ${g.userRating} → ${g.oppRating} · ${fmtDate(g.dateUTC)}`)),
-      h('div', { class: 'meta' }, g.timeClass),
-      h('div', {}, acc != null ? h('span', { class: 'acc-badge', style: { color: accColor(acc) } }, pct(acc) + ' acc') : h('span', { class: 'hint tiny' }, 'not analyzed')),
-      h('button', { class: 'btn small ghost', onclick: (e) => { e.stopPropagation(); openReview(g); } }, a ? 'Review' : 'Analyze'),
-    ));
-  });
+  const list = h('div', { class: 'game-list' });
+  const all = games.slice(0, 25);
+  const SHORT = 3;
+  const renderN = (n) => { clear(list); all.slice(0, n).forEach((g, i) => list.append(gameRow(g, all[i + 1]))); };
+  renderN(SHORT);
   wrap.append(list);
-  if (_games.length > 8) {
-    const more = h('button', { class: 'btn ghost small', style: { marginTop: '10px' }, onclick: () => { list.querySelectorAll('.gr-hidden').forEach((r) => r.classList.remove('gr-hidden')); more.remove(); } }, `Show all ${_games.length} games →`);
+  if (all.length > SHORT) {
+    const more = h('button', { class: 'btn ghost small', style: { marginTop: '10px' }, onclick: () => { renderN(all.length); more.remove(); } }, `Show more (${all.length - SHORT}) →`);
     wrap.append(more);
   }
   return wrap;

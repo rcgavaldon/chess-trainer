@@ -143,6 +143,19 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .acc-badge { font-weight: 800; font-size: 14px; font-family: var(--mono); }
 .game-row.gr-hidden { display: none; }
 
+/* ---- condensed rich game rows (My Chess "Review your games") ---- */
+.games-cat { width: auto; min-width: 120px; padding: 7px 10px; font-size: 13px; flex-shrink: 0; }
+.grow { display: grid; grid-template-columns: 54px 1fr auto; gap: 12px; align-items: center; padding: 12px 14px;
+  border-radius: 12px; background: var(--surface); border: 1px solid var(--line); cursor: pointer; transition: border-color .15s, background .15s, transform .12s; }
+.grow:hover { border-color: var(--line-strong); background: var(--surface-2); transform: translateX(2px); }
+.grow-main { min-width: 0; }
+.grow-top { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grow-top .opp { font-weight: 700; }
+.grow-stats { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+.grow-rt { font-family: var(--mono); font-weight: 700; color: var(--text); }
+.grow-est { font-family: var(--mono); font-weight: 700; color: var(--accent-2); }
+.grow > .btn { flex-shrink: 0; }
+
 /* ---- review layout ---- */
 .review { display: grid; grid-template-columns: 30px 480px 1fr; gap: 18px; align-items: start; }
 @media (max-width: 980px) { .review { grid-template-columns: 26px 1fr; } .review .sidebar { grid-column: 1 / -1; } }
@@ -525,6 +538,11 @@ details.more > summary:hover { color: var(--text); }
   .stat .v { font-size: 24px; }
   .snap { flex: 1 1 45%; border-right: none; padding: 8px 10px; }
   .accbar { gap: 20px; }
+
+  /* condensed game rows: tighter on mobile */
+  .grow { grid-template-columns: 44px 1fr auto; gap: 10px; padding: 11px 12px; border-radius: 14px; }
+  .grow-stats { gap: 7px 10px; font-size: 12px; }
+  .games-cat { min-width: 100px; }
 
   /* hero: slightly smaller number, full-width Train button for a big thumb target */
   .hero-rating { font-size: 42px; }
