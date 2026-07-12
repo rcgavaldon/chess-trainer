@@ -356,6 +356,11 @@ details.more > summary:hover { color: var(--text); }
 .hero-fix { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 13px; position: relative; }
 .hero-train { box-shadow: 0 0 0 1px rgba(125, 211, 95, .4), 0 0 18px rgba(125, 211, 95, .35); white-space: nowrap; }
 .hero-train:hover { box-shadow: 0 0 0 1px rgba(125, 211, 95, .6), 0 0 26px rgba(125, 211, 95, .5); }
+/* wide screens: rating block on the left, "your #1 fix" on the right (uses the full-width hero) */
+@media (min-width: 960px) {
+  .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 24px; align-items: center; }
+  .hero .hero-fix { margin-top: 0; border-top: none; border-left: 1px solid var(--line); padding: 2px 0 2px 24px; }
+}
 
 /* ---- leaderboard peek (Where you rank) — podium + a window around you ---- */
 .lbp { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
@@ -373,6 +378,13 @@ details.more > summary:hover { color: var(--text); }
   box-shadow: 0 0 0 1px rgba(231, 177, 74, .16), var(--shadow);
   background: linear-gradient(160deg, rgba(231, 177, 74, .12), var(--surface) 58%); }
 .uscf-card > .row h2 { color: var(--warn); }
+
+/* ---- My Chess: wide-screen 2-column dashboard (mobile/tablet stay single-column) ---- */
+@media (min-width: 960px) {
+  #report-area.dash { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+  #report-area.dash > * { margin-top: 0 !important; }
+  #report-area.dash > .span-2 { grid-column: 1 / -1; }
+}
 
 /* ---- opening explorer ---- */
 .ex-move { display: grid; grid-template-columns: 58px 1fr 90px; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; transition: background .12s; }

@@ -191,9 +191,10 @@ async function drawReport() {
   const scopeName = TC_LABEL[scope] || scope;
 
   clear(area);
-  area.append(tcSwitcher(allMine, scope));
+  area.classList.remove('dash'); // reset; the full report re-adds it, the instant path stays single-column
+  const tcs = tcSwitcher(allMine, scope); tcs.classList.add('span-2'); area.append(tcs);
   const tilt = tiltBanner(allMine);
-  if (tilt) area.append(tilt);
+  if (tilt) { tilt.classList.add('span-2'); area.append(tilt); }
 
   const record = recordOf(myGames);
   const last10rec = recordOf(myGames.slice(0, 10));
@@ -391,15 +392,17 @@ function leaderboardPeek() {
 // rank, your games, your badges. Everything deep (peer breakdown, by-time-control, progress
 // history, AI coach's note) lives one tap away in the "See everything" drawer.
 function renderReport(area, R) {
-  area.append(heroCard(R));
+  area.classList.add('dash'); // opt into the wide-screen 2-column dashboard grid
+  const full = (el) => { if (el && el.classList) el.classList.add('span-2'); return el; };
+  area.append(full(heroCard(R)));
   // US Chess tournament results, up top and prominent (self-removes when the player has no ID).
-  const uc = uscfCard(null, S.username); if (uc) area.append(uc);
-  area.append(focusPlanCard(R));
-  renderSkills(area, R.dims);
-  const lb = leaderboardPeek(); if (lb) area.append(lb);
-  area.append(gamesDetails());
+  const uc = uscfCard(null, S.username); if (uc) area.append(full(uc));
+  area.append(focusPlanCard(R));                          // pairs with...
+  renderSkills(area, R.dims);                             // ...skills
+  const lb = leaderboardPeek(); if (lb) area.append(lb);  // pairs with...
+  area.append(gamesDetails());                            // ...your games
   renderBadges(area, badgeData(R.myGames, R.eloPoints));
-  area.append(everythingDrawer(R));
+  area.append(full(everythingDrawer(R)));
 }
 
 // Rating "now" + how it's moving, from the chronological ELO points (oldest → newest).
@@ -441,6 +444,7 @@ function heroCard(R) {
   const chip = (k, v, sub) => h('div', { class: 'hero-chip' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v), sub != null ? h('div', { class: 'hint tiny' }, sub) : null);
   return h('div', { class: 'card section hero' },
     h('div', { class: 'hero-glow' }),
+    h('div', { class: 'hero-left' },
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' } },
       h('div', { class: 'hero-eyebrow' }, `${scopeLabel} rating`.trim()),
       streak >= 2 ? h('div', { class: 'hero-flame' }, `🔥 ${streak} win streak`) : null),
@@ -451,7 +455,7 @@ function heroCard(R) {
     spark ? h('div', { html: spark, style: { margin: '10px 0 2px' } }) : null,
     h('div', { class: 'hero-chips' },
       chip('Record', `${R.record.w}-${R.record.l}-${R.record.d}`, `${winPctOf(R.record)}% win`),
-      chip('Last 10', `${R.last10.w}-${R.last10.l}-${R.last10.d}`, `${winPctOf(R.last10)}% score`)),
+      chip('Last 10', `${R.last10.w}-${R.last10.l}-${R.last10.d}`, `${winPctOf(R.last10)}% score`))),
     top ? h('div', { class: 'hero-fix' },
       h('div', { class: 'hero-eyebrow', style: { color: 'var(--accent)' } }, '🎯 Your #1 fix'),
       h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginTop: '6px' } },
