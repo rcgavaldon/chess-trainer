@@ -986,4 +986,5 @@ export const ES = {
   "US Chess profile ↗": "Perfil de US Chess ↗",
   "View event on US Chess ↗": "Ver evento en US Chess ↗",
   "No rated tournaments on record yet — they'll show up here after your first one.": "Aún no hay torneos con rating registrados — aparecerán aquí después del primero.",
+  "➕ New event": "➕ Nuevo evento",
 };
