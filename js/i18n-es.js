@@ -980,4 +980,10 @@ export const ES = {
   "Tap a game to replay it move by move and see exactly where it turned.": "Toca una partida para reproducirla jugada por jugada y ver exactamente dónde cambió.",
   "Enter your info and your coach will see you on the roster. It's saved on this device so it remembers you.": "Escribe tus datos y tu entrenador te verá en la lista. Se guarda en este dispositivo para recordarte.",
   "Share this link or QR code. Students enter their name + Chess.com username (or lichess:Name) and they're added to your roster automatically.": "Comparte este enlace o código QR. Los estudiantes escriben su nombre + usuario de Chess.com (o lichess:Nombre) y se agregan a tu lista automáticamente.",
+  "🏅 US Chess tournaments": "🏅 Torneos de US Chess",
+  "↻ Refresh": "↻ Actualizar",
+  "Loading tournaments…": "Cargando torneos…",
+  "US Chess profile ↗": "Perfil de US Chess ↗",
+  "View event on US Chess ↗": "Ver evento en US Chess ↗",
+  "No rated tournaments on record yet — they'll show up here after your first one.": "Aún no hay torneos con rating registrados — aparecerán aquí después del primero.",
 };

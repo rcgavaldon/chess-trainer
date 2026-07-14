@@ -1057,7 +1057,7 @@ export function uscfCard(uscfId, username) {
     return card;
   }
 
-  const fmtRec = (r) => r ? `${r.w}W–${r.l}L${r.d ? `–${r.d}D` : ''}` : null;
+  function fmtRec(r) { return r ? `${r.w}W–${r.l}L${r.d ? `–${r.d}D` : ''}` : null; } // hoisted: the cloud-resolve path returns before a const would initialize (TDZ crash)
   function eventRow(ev) {
     const main = ev.sections[0] || {};
     const d = uscfDelta(main);
