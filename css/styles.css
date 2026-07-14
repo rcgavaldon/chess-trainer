@@ -156,6 +156,13 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .grow-est { font-family: var(--mono); font-weight: 700; color: var(--accent-2); }
 .grow > .btn { flex-shrink: 0; }
 
+/* ---- student self-enroll: invite link + QR (coach's Manage panel) ---- */
+.invite-block { border: 1px solid var(--accent); background: rgba(125, 211, 95, .06); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+.qr-box { background: #fff; padding: 12px; border-radius: 12px; width: max-content; max-width: 100%; margin-top: 12px; }
+.qr-box svg { display: block; width: 200px; height: 200px; max-width: 62vw; max-height: 62vw; }
+/* selected state for ghost-button toggles (e.g. the join form's group picker) */
+.btn.ghost.active { border-color: var(--accent); color: var(--accent); background: rgba(125, 211, 95, .12); }
+
 /* ---- review layout ---- */
 .review { display: grid; grid-template-columns: 30px 480px 1fr; gap: 18px; align-items: start; }
 @media (max-width: 980px) { .review { grid-template-columns: 26px 1fr; } .review .sidebar { grid-column: 1 / -1; } }

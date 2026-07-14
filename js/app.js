@@ -205,7 +205,10 @@ if (langBtn) {
 
 store.onRouteChange(draw);
 startI18n(); // translate the chrome + current view, and observe async-rendered content, when Spanish
-if (!store.get('profile.username')) showOnboarding();
+// A student opening a coach's join link (?join=<coach>) on a fresh device → self-enroll form.
+const _join = _params.get('join');
+if (_join && !store.get('profile.onboarded')) showJoin(_join.trim());
+else if (!store.get('profile.username')) showOnboarding();
 
 // ---- auto-update check ----
 // This is a SPA: once loaded it never re-fetches code, and phones keep the tab alive for days —
@@ -278,4 +281,45 @@ function showOnboarding() {
     go,
     h('div', { class: 'hint tiny' }, 'You can change any of this later in ⚙ Settings.'),
   ));
+}
+
+// Student self-enrollment via a coach's join link (?join=<coach>): name + username + group →
+// added to the shared roster (coach recorded) and set up on this device as a student.
+function showJoin(coach) {
+  const v = document.getElementById('view');
+  clear(v);
+  const field = (t, el) => h('label', { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', fontWeight: 500 } }, t, el);
+  const name = h('input', { type: 'text', placeholder: 'Your name (e.g. Alex)' });
+  const user = h('input', { type: 'text', placeholder: 'Chess.com username — or lichess:YourName', onkeydown: (e) => { if (e.key === 'Enter') go.click(); } });
+  let group = 'ms';
+  const grpWrap = h('div', { class: 'row', style: { gap: '8px' } });
+  [['ms', 'Middle School'], ['hs', 'High School']].forEach(([id, lab]) => {
+    const b = h('button', { type: 'button', class: 'btn ghost small' + (id === group ? ' active' : ''), onclick: () => { group = id; grpWrap.querySelectorAll('button').forEach((x) => x.classList.remove('active')); b.classList.add('active'); } }, lab);
+    grpWrap.append(b);
+  });
+  const go = h('button', { class: 'btn', style: { marginTop: '4px', alignSelf: 'flex-start' }, onclick: async () => {
+    const u = user.value.trim(), nm = name.value.trim();
+    if (!nm) { name.focus(); return; }
+    if (!u) { user.focus(); return; }
+    go.disabled = true; go.textContent = 'Joining…';
+    try {
+      const c = await import('./cloud.js');
+      await c.upsertStudent({ username: u, name: nm, group_id: group, coach: coach || '', role: 'student' });
+    } catch (e) { /* cloud hiccup — still set them up locally; the coach's next sync catches them */ }
+    store.set('profile.ownerName', nm);
+    store.set('profile.username', u);
+    store.set('profile.role', 'student');
+    store.set('profile.group', group);
+    if (coach) store.set('profile.coach', coach);
+    store.set('profile.onboarded', true);
+    // Reload at the clean URL (drops ?join) so the student-role nav (3 tabs) applies.
+    window.location.href = location.origin + location.pathname + '#/personal';
+  } }, 'Join the club →');
+  v.append(h('div', { class: 'card', style: { maxWidth: '460px', margin: '7vh auto', display: 'flex', flexDirection: 'column', gap: '13px' } },
+    h('div', { style: { fontSize: '23px', fontWeight: 800 } }, '🏆 Join the chess club'),
+    h('div', { class: 'hint' }, 'Enter your info and your coach will see you on the roster. It\'s saved on this device so it remembers you.'),
+    field('Your name', name),
+    field('Your Chess.com username', user),
+    field('Your group', grpWrap),
+    go));
 }
