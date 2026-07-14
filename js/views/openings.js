@@ -105,7 +105,7 @@ async function drawYours() {
     assess.push({ label, avg: ca.avg, games: ca.games, weak: ca.avg < 50, rec: recommendOpening(key, rating) });
   }
   if (assess.length) {
-    body.append(h('div', { class: 'card', style: { borderColor: 'var(--accent-2)' } },
+    body.append(h('div', { class: 'card', style: { borderColor: 'var(--accent-2)', boxShadow: '0 0 0 1px rgba(108,168,255,.18), var(--shadow)' } },
       h('h2', {}, '🎯 Your openings, by color'),
       h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, `How you score with each color, and what to do about it (rating ~${rating}).`),
       ...assess.map((a) => h('div', { style: { marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--line)' } },
@@ -120,7 +120,7 @@ async function drawYours() {
   const sug = await suggestOpenings(OS.correlation);
   if (sug.focus.length) {
     body.append(h('h2', {}, 'Work on these'),
-      h('div', { class: 'chip-row section' }, ...sug.focus.map((o) => h('div', { class: 'card', style: { flex: '1 1 220px', cursor: 'pointer' }, onclick: () => openByMoves(o.deepest) },
+      h('div', { class: 'chip-row section' }, ...sug.focus.map((o) => h('div', { class: 'card big-card', style: { flex: '1 1 220px', cursor: 'pointer' }, onclick: () => openByMoves(o.deepest) },
         h('div', {}, h('b', {}, o.family)),
         h('div', { class: 'hint tiny' }, `${o.games} games · ${o.w}-${o.l}-${o.d} · `, scoreSpan(o.scorePct)),
         h('div', { class: 'hint tiny', style: { marginTop: '4px', color: 'var(--warn)' } }, o.scorePct < 45 ? 'You\'re struggling here — study the plans.' : 'Frequent — worth tightening up.')))));

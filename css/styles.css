@@ -393,6 +393,12 @@ details.more > summary:hover { color: var(--text); }
   #report-area.dash > .span-2 { grid-column: 1 / -1; }
 }
 
+/* ---- poppy clickable cards (Puzzles hub + reusable across tabs) ---- */
+.big-card { transition: transform .12s, border-color .12s, box-shadow .12s; }
+.big-card:hover { transform: translateY(-3px); border-color: var(--line-strong); box-shadow: var(--shadow); }
+.big-card.accent { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(125, 211, 95, .18), var(--shadow-sm); }
+.big-card.accent:hover { box-shadow: 0 0 0 1px rgba(125, 211, 95, .3), var(--shadow); }
+
 /* ---- opening explorer ---- */
 .ex-move { display: grid; grid-template-columns: 58px 1fr 90px; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; transition: background .12s; }
 .ex-move:hover { background: var(--surface-2); }

@@ -83,7 +83,7 @@ function renderLeaderboardInner(wrap) {
         chip('all', 'Everyone'), chip('ms', 'Middle School'), chip('hs', 'High School'), chip('teacher', 'Teachers'))),
     h('div', { class: 'hint tiny', style: { margin: '2px 0 10px' } }, 'Tap a student to see how they\'re doing and what to work on.'),
     rows.length
-      ? h('div', { class: 'card', style: { padding: '0' } }, ...rows.slice(0, 80).map((x, i) => lbRow(x, i)))
+      ? h('div', { class: 'card', style: { padding: '0', borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18), var(--shadow)' } }, ...rows.slice(0, 80).map((x, i) => lbRow(x, i)))
       : h('div', { class: 'empty' }, CS.lbRows && CS.lbRows.length ? 'No ranked players in this group yet.' : 'No students yet — add them under “Manage roster,” then hit “Update ratings.”'));
 }
 
@@ -95,7 +95,7 @@ function lbRow(x, i) {
     class: 'lb-row', style: { display: 'grid', gridTemplateColumns: '30px 1fr 64px 18px', gap: '10px', alignItems: 'center', padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', cursor: 'pointer', background: open ? 'var(--bg-soft)' : 'transparent' },
     onclick: () => { CS.expanded = open ? null : u; renderLeaderboardInner(document.getElementById('lb-wrap')); },
   },
-    h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i + 1),
+    h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: i < 3 ? '18px' : '14px', textAlign: 'center', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i < 3 ? ['🥇', '🥈', '🥉'][i] : String(i + 1)),
     h('div', {}, h('b', {}, nameOf(x)), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, GROUP_LABEL[x.group_id] || '')),
     h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rating ?? '—'), h('div', { class: 'hint tiny' }, /^lichess:/i.test(x.username || '') ? 'lichess' : 'chess.com')),
     h('span', { class: 'hint tiny' }, open ? '▲' : '▾'));

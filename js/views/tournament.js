@@ -53,8 +53,8 @@ function createForm() {
     h('option', { value: 'roundrobin' }, 'Round robin (all play all)'),
     h('option', { value: 'balanced-fair' }, 'Single round — fair (similar strength)'),
     h('option', { value: 'balanced-mentor' }, 'Single round — mentor (strong + weak)'));
-  return h('div', { class: 'card section' },
-    h('h2', {}, 'New event'),
+  return h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18), var(--shadow)' } },
+    h('h2', {}, '➕ New event'),
     field('Event name', name),
     field('Players — type names, one per line', names),
     roster ? field('…or pull a class roster (uses Chess.com ratings)', roster) : null,
@@ -238,7 +238,7 @@ function standingsTable(ev) {
     h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, 'Player'), h('th', {}, 'Rating'), h('th', {}, 'Score'), h('th', {}, 'Buch (C1)'), h('th', {}, 'SB'))),
       h('tbody', {}, ...st.map((p, i) => h('tr', {},
-        h('td', {}, i + 1), h('td', {}, h('b', {}, p.name)), h('td', {}, ev.players.find((x) => x.id === p.id)?.unrated ? '—' : p.rating),
+        h('td', { style: i < 3 ? { fontSize: '16px' } : {} }, i < 3 ? ['🥇', '🥈', '🥉'][i] : (i + 1)), h('td', {}, h('b', {}, p.name)), h('td', {}, ev.players.find((x) => x.id === p.id)?.unrated ? '—' : p.rating),
         h('td', {}, h('b', {}, p.score)), h('td', {}, round1(p.buchholzCut1)), h('td', {}, round1(p.sonnebornBerger)))))));
 }
 

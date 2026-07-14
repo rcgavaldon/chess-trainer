@@ -106,7 +106,7 @@ function drawHome() {
   clear(host);
   const streak = store.get('train.streak', { count: 0 });
   const done = dailyDoneToday();
-  const bigCard3 = (icon, title, desc, btn, fn) => h('div', { class: 'card', style: { display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer' }, onclick: fn },
+  const bigCard3 = (icon, title, desc, btn, fn, accent) => h('div', { class: 'card big-card' + (accent ? ' accent' : ''), style: { display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer' }, onclick: fn },
     h('div', { style: { fontSize: '30px' } }, icon),
     h('div', { style: { fontSize: '18px', fontWeight: 800 } }, title),
     h('div', { class: 'hint', style: { flex: 1 } }, desc),
@@ -117,18 +117,18 @@ function drawHome() {
       h('span', { class: 'pill', style: { fontFamily: 'var(--mono)', fontWeight: 700, fontSize: '15px' } }, `⚡ Puzzle rating ${getPuzzleRating()}`)),
     h('p', { class: 'hint' }, 'Three ways to train: pick the patterns you want, learn to finish games with the classic mates, or race the clock as the difficulty ramps to your level. Your puzzle rating adapts as you go.'),
     h('div', { class: 'section', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: '14px' } },
-      bigCard3('🧩', 'Puzzles', 'Choose exactly what you drill — all patterns, a few, or just one. Tuned to your rating.', 'Choose themes →', renderThemePicker),
+      bigCard3('🧩', 'Puzzles', 'Choose exactly what you drill — all patterns, a few, or just one. Tuned to your rating.', 'Choose themes →', renderThemePicker, true),
       bigCard3('♛', 'Advanced Mates', 'Learn the classic named checkmates — Anastasia\'s, Boden\'s, Arabian… — see each one, practice it, then identify them.', 'Open Mates →', () => CTX.navigate('mates')),
       bigCard3('🌪', 'Puzzle Storm', `Race the clock as puzzles ramp from easy up past your level. Best: ${store.get('train.stormBest', 0)}`, 'Start storm →', startStorm)),
     h('h2', { class: 'section' }, 'More practice'),
     h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '12px' } },
-      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startDaily },
+      h('div', { class: 'card big-card', style: { cursor: 'pointer' }, onclick: startDaily },
         h('div', {}, h('b', {}, done ? '✓ Daily training' : '📅 Daily training'), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, `🔥 ${streak.count || 0}`)),
         h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, done ? 'Done today — come back tomorrow.' : '12 puzzles aimed at your weak spots.')),
-      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startEndless },
+      h('div', { class: 'card big-card', style: { cursor: 'pointer' }, onclick: startEndless },
         h('div', {}, h('b', {}, '♾️ Endless practice')),
         h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Never-ending fresh puzzles at your own pace.')),
-      h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: startBlunders },
+      h('div', { class: 'card big-card', style: { cursor: 'pointer' }, onclick: startBlunders },
         h('div', {}, h('b', {}, '🎯 Your blunders')),
         h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Replay your own losing moves as puzzles — find what you missed.')),
       pastPuzzlesCard()),
@@ -139,7 +139,7 @@ function drawHome() {
 function pastPuzzlesCard() {
   const hist = store.get('puzzles.history', []);
   const solved = hist.filter((r) => r.solved).length, missed = hist.length - solved;
-  return h('div', { class: 'card', style: { cursor: 'pointer' }, onclick: renderHistory },
+  return h('div', { class: 'card big-card', style: { cursor: 'pointer' }, onclick: renderHistory },
     h('div', {}, h('b', {}, '📜 Past puzzles'),
       hist.length ? h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, `✓ ${solved} · ✗ ${missed}`) : null),
     h('div', { class: 'hint tiny', style: { marginTop: '4px' } },
