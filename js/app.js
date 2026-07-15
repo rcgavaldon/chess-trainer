@@ -203,12 +203,21 @@ if (langBtn) {
   langBtn.addEventListener('click', () => setLang(getLang() === 'es' ? 'en' : 'es'));
 }
 
-store.onRouteChange(draw);
-startI18n(); // translate the chrome + current view, and observe async-rendered content, when Spanish
-// A student opening a coach's join link (?join=<coach>) on a fresh device → self-enroll form.
+// A student opening a coach's join link (?join=<coach>) → self-enroll form.
 const _join = _params.get('join');
-if (_join && !store.get('profile.onboarded')) showJoin(_join.trim());
-else if (!store.get('profile.username')) showOnboarding();
+if (_join) {
+  // Self-enroll OWNS the page. Two bugs lived here:
+  //  1) it was gated on !profile.onboarded, so any device that had already opened the app (the club
+  //     Chromebook, a shared phone, the projector) silently skipped the form and dropped the student
+  //     straight into the PREVIOUS user's account;
+  //  2) starting the router first drew that user's report, and personal.js's async doImport() then
+  //     repainted it right over the top of the join form.
+  showJoin(_join.trim());
+} else {
+  store.onRouteChange(draw);
+  if (!store.get('profile.username')) showOnboarding();
+}
+startI18n(); // translate the chrome + current view, and observe async-rendered content, when Spanish
 
 // ---- auto-update check ----
 // This is a SPA: once loaded it never re-fetches code, and phones keep the tab alive for days —
@@ -249,7 +258,9 @@ function showOnboarding() {
   const field = (t, el) => h('label', { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', fontWeight: 500 } }, t, el);
   const name = h('input', { type: 'text', placeholder: 'Your name (e.g. Robert)' });
   const user = h('input', { type: 'text', placeholder: 'Chess.com username — or lichess:YourName', onkeydown: (e) => { if (e.key === 'Enter') go.click(); } });
-  const key = h('input', { type: 'password', placeholder: 'sk-ant-…  (optional — powers the AI coach)', autocomplete: 'off' });
+  // No API-key field here: the shared coach proxy is live, so the AI coach already works for
+  // everyone for free. Asking a 12-year-old for an sk-ant key just made them think it was locked.
+  // (Power users can still set their own key under ⚙ Settings.)
   let accent = store.get('profile.accent', 'green');
   const accentWrap = h('div', { class: 'swatches' });
   const keys = Object.keys(ACCENTS);
@@ -265,7 +276,6 @@ function showOnboarding() {
     store.set('profile.ownerName', name.value.trim());
     store.set('profile.username', u);
     store.set('profile.accent', accent);
-    if (key.value.trim()) store.set('profile.llmKey', key.value.trim());
     store.set('profile.onboarded', true);
     updateOwnerBadge();
     location.hash = '#/personal';
@@ -277,7 +287,6 @@ function showOnboarding() {
     field('Your name', name),
     field('Your Chess.com username', user),
     field('Accent color', accentWrap),
-    field('Anthropic API key (optional)', key),
     go,
     h('div', { class: 'hint tiny' }, 'You can change any of this later in ⚙ Settings.'),
   ));
@@ -297,11 +306,25 @@ function showJoin(coach) {
     const b = h('button', { type: 'button', class: 'btn ghost small' + (id === group ? ' active' : ''), onclick: () => { group = id; grpWrap.querySelectorAll('button').forEach((x) => x.classList.remove('active')); b.classList.add('active'); } }, lab);
     grpWrap.append(b);
   });
+  const err = h('div', { class: 'hint tiny', style: { color: 'var(--bad)', fontWeight: 700, display: 'none' } });
   const go = h('button', { class: 'btn', style: { marginTop: '4px', alignSelf: 'flex-start' }, onclick: async () => {
     const u = user.value.trim(), nm = name.value.trim();
     if (!nm) { name.focus(); return; }
     if (!u) { user.focus(); return; }
-    go.disabled = true; go.textContent = 'Joining…';
+    err.style.display = 'none';
+    go.disabled = true; go.textContent = 'Checking…';
+    // Verify the account EXISTS before writing a roster row. A typo used to create a ghost student
+    // the coach could never see or remove, and dropped the kid on a dead-end "No games found" page.
+    try {
+      const cc = await import('./chesscom.js');
+      if (!(await cc.fetchStats(u))) {
+        err.textContent = `We couldn't find “${u}”. Check the spelling — it's your Chess.com username, not your real name.`;
+        err.style.display = 'block';
+        user.focus(); go.disabled = false; go.textContent = 'Join the club →';
+        return;
+      }
+    } catch { /* network hiccup — let them through rather than block enrollment */ }
+    go.textContent = 'Joining…';
     try {
       const c = await import('./cloud.js');
       await c.upsertStudent({ username: u, name: nm, group_id: group, coach: coach || '', role: 'student' });
@@ -315,11 +338,14 @@ function showJoin(coach) {
     // Reload at the clean URL (drops ?join) so the student-role nav (3 tabs) applies.
     window.location.href = location.origin + location.pathname + '#/personal';
   } }, 'Join the club →');
+  const signedIn = store.get('profile.ownerName', '') || store.get('profile.username', '');
   v.append(h('div', { class: 'card', style: { maxWidth: '460px', margin: '7vh auto', display: 'flex', flexDirection: 'column', gap: '13px' } },
     h('div', { style: { fontSize: '23px', fontWeight: 800 } }, '🏆 Join the chess club'),
     h('div', { class: 'hint' }, 'Enter your info and your coach will see you on the roster. It\'s saved on this device so it remembers you.'),
+    signedIn ? h('div', { class: 'hint tiny', style: { color: 'var(--warn)', fontWeight: 700 } }, `⚠ This device is signed in as ${signedIn} — joining will switch it to you.`) : null,
     field('Your name', name),
     field('Your Chess.com username', user),
     field('Your group', grpWrap),
+    err,
     go));
 }

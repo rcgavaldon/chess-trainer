@@ -5,15 +5,24 @@ import { h, clear } from '../dom.js';
 import * as store from '../storage.js';
 import * as cc from '../chesscom.js';
 import { swissPairRound, roundRobinSchedule, balancedPairs, randomPairRound, knockoutBracket, nextBracketRound, computeStandings, suggestedRounds } from '../pairing.js';
+import { cloudEnabled, fetchStudents } from '../cloud.js';
 
 const TS = { selected: null };
+let ROSTER_CACHE = [];
 let CTX = null, host = null;
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'event';
 
 export function render(container, ctx) { CTX = ctx; host = container; draw(); }
 
 function events() { return store.get('tournaments', {}); }
-function rosters() { return store.get('class.rosters', {}); }
+// The real roster lives in the CLOUD (that's what the Students tab shows and what the ?join link
+// writes to). This used to read `class.rosters` — PLURAL — a key nothing in the app has ever
+// written, so the "pull a class roster" dropdown never rendered and Robert hand-typed 20-40 names
+// on tournament day with no ratings (making Swiss seeding meaningless).
+async function cloudRoster() {
+  if (!cloudEnabled()) return [];
+  try { const rows = await fetchStudents(); return (rows || []).filter((x) => x && x.username); } catch { return []; }
+}
 function saveEvent(ev) { const e = events(); e[ev.id] = ev; store.set('tournaments', e); }
 function nameOf(ev, id) { const p = ev.players.find((x) => x.id === id); return p ? p.name : id; }
 
@@ -40,12 +49,21 @@ function drawList() {
 }
 
 function createForm() {
-  const rs = rosters();
-  const ids = Object.keys(rs);
   const field = (label, el) => h('label', { style: { display: 'block', marginBottom: '12px', fontSize: '13px', fontWeight: 600 } }, label, el);
   const name = h('input', { type: 'text', placeholder: 'e.g. Friday Blitz' });
   const names = h('textarea', { rows: 5, placeholder: 'One player per line — just names for an unrated event:\n  Ana\n  Beto\n  Carlos\nOptional rating: "Diana, 1200"', style: { width: '100%', fontFamily: 'inherit', resize: 'vertical' } });
-  const roster = ids.length ? h('select', {}, h('option', { value: '' }, '— or pull a class roster —'), ...ids.map((id) => h('option', { value: id }, rs[id].name))) : null;
+  const roster = cloudEnabled() ? h('select', {}, h('option', { value: '' }, '— or pull my class roster —')) : null;
+  if (roster) {
+    cloudRoster().then((rows) => {
+      if (!rows.length) return;
+      ROSTER_CACHE = rows;
+      roster.append(h('option', { value: 'all' }, `My whole club (${rows.length})`));
+      for (const [g, lab] of [['ms', 'Middle School'], ['hs', 'High School']]) {
+        const n = rows.filter((x) => (x.group_id || 'ms') === g).length;
+        if (n) roster.append(h('option', { value: g }, `${lab} only (${n})`));
+      }
+    });
+  }
   const format = h('select', {},
     h('option', { value: 'random' }, 'Random pairing (unrated-friendly)'),
     h('option', { value: 'knockout' }, 'Knockout bracket (single elimination)'),
@@ -57,7 +75,7 @@ function createForm() {
     h('h2', {}, '➕ New event'),
     field('Event name', name),
     field('Players — type names, one per line', names),
-    roster ? field('…or pull a class roster (uses Chess.com ratings)', roster) : null,
+    roster ? field('…or pull my class roster (uses their Chess.com ratings)', roster) : null,
     field('Format', format),
     h('button', { class: 'btn', onclick: () => createEvent(name.value.trim(), roster && roster.value, format.value, names.value) }, 'Create event'),
     h('div', { class: 'hint tiny', style: { marginTop: '8px' } }, 'For a casual unrated event, just type the names and keep Random pairing. Ratings are optional (add ", 1200" after a name); rating-seeded formats use them when present.'));
@@ -76,15 +94,15 @@ async function createEvent(name, rosterId, format, namesText) {
       return { id: 'p' + (i + 1) + '-' + slug(nm), name: nm, rating: Number.isFinite(rt) ? rt : null, unrated: !Number.isFinite(rt) };
     }).filter((p) => p.name);
   } else if (rosterId) {
-    const roster = rosters()[rosterId];
-    if (!roster || !roster.students.length) { alert('That roster has no students.'); return; }
-    const tc = store.get('profile.timeClass', 'rapid');
-    clear(host).append(h('h1', {}, 'Tournament'), h('div', { class: 'row section' }, h('span', { class: 'spinner' }), ' Fetching player ratings…'));
-    for (const s of roster.students) {
-      let rating = null;
-      try { rating = cc.ratingFromStats(await cc.fetchStats(s.username), tc === 'all' ? 'rapid' : tc) || null; } catch { /* offline / no profile */ }
-      players.push({ id: s.username, name: s.alias || s.username, rating, unrated: rating == null });
-    }
+    // Ratings already live on the cloud rows (kept fresh by the daily cron) — no per-player fetch.
+    clear(host).append(h('h1', {}, 'Tournament'), h('div', { class: 'row section' }, h('span', { class: 'spinner' }), ' Pulling your roster…'));
+    const rows = ROSTER_CACHE.length ? ROSTER_CACHE : await cloudRoster();
+    const picked = rosterId === 'all' ? rows : rows.filter((x) => (x.group_id || 'ms') === rosterId);
+    if (!picked.length) { alert('That group has no students yet.'); draw(); return; }
+    players = picked.map((s) => {
+      const rating = s.chesscom_rating ?? s.ladder_rating ?? null;
+      return { id: s.username, name: s.name || s.username, rating, unrated: rating == null };
+    });
   }
   if (players.length < 2) { alert('Add at least 2 players (one name per line).'); return; }
   // Pairing engines need a number; unrated players get a neutral seed (matters only for rating-seeded formats).

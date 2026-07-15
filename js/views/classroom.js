@@ -8,7 +8,7 @@ import * as cc from '../chesscom.js';
 import * as personal from './personal.js';
 import { ingestLadder } from '../ladder.js';
 import { tiltSignals } from '../tilt.js';
-import { cloudEnabled, upsertStudent, fetchStudents, fetchSnapshots, fetchAttempts, publishUscfId } from '../cloud.js';
+import { cloudEnabled, upsertStudent, removeStudent, fetchStudents, fetchSnapshots, fetchAttempts, publishUscfId } from '../cloud.js';
 import { focusAreas } from '../report.js';
 import { Chess } from 'chess.js';
 import { mountPuzzle } from '../puzzleplay.js';
@@ -32,6 +32,19 @@ function getRoster() {
 }
 function saveRoster(r) { store.set('class.roster', r); }
 
+// THE ROSTER IS THE CLOUD. That's what the leaderboard shows and what the self-enroll (?join) link
+// writes to. `class.roster` is a device-local cache/backup — but it used to be the ONLY thing the
+// header count, the Manage list and "↻ Update ratings" read, so: self-enrolled students were
+// invisible forever, Will's device had a different roster, and Update ratings iterated an empty
+// array (a total no-op). Merge cloud (authoritative) with any local-only strays.
+function rosterList() {
+  const local = getRoster().students || [];
+  const cloud = (CS.lbRows || []).map((x) => ({ name: nameOf(x), u: x.username, g: x.group_id || 'ms' }));
+  if (!cloud.length) return local;
+  const have = new Set(cloud.map((s) => (s.u || '').toLowerCase()));
+  return [...cloud, ...local.filter((s) => s.u && !have.has(String(s.u).toLowerCase()))];
+}
+
 // ============================ main view ============================
 function draw() {
   if (CS.review) return renderPuzzleHistoryList();
@@ -42,7 +55,7 @@ function draw() {
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
       h('h1', {}, 'Students'),
       h('div', { class: 'row', style: { gap: '6px', alignItems: 'center' } },
-        h('span', { class: 'hint tiny' }, `${r.students.length} in roster · ☁ live`),
+        h('span', { class: 'hint tiny' }, `${rosterList().length} in roster · ☁ live`),
         h('button', { class: 'btn small', disabled: CS.updating, onclick: () => updateClass(r) }, CS.updating ? 'Updating…' : '↻ Update ratings'),
         h('button', { class: 'btn ghost small', onclick: () => { CS.showManage = !CS.showManage; draw(); } }, CS.showManage ? '✕ Close' : '＋ Manage roster'))),
     CS.updating ? h('div', { class: 'hint tiny', id: 'cls-progress', style: { marginTop: '4px' } }, 'Pulling each student\'s games…') : null,
@@ -56,7 +69,9 @@ function leaderboardSection() {
   const wrap = h('div', { class: 'section', id: 'lb-wrap' });
   if (CS.lbRows) { renderLeaderboardInner(wrap); return wrap; }
   wrap.append(h('h2', {}, '🏆 Leaderboard'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading the class…'));
-  fetchStudents().then((rows) => { CS.lbRows = rows || []; const w = document.getElementById('lb-wrap'); if (w) renderLeaderboardInner(w); })
+  // Full draw on FIRST load (not just the leaderboard) so the roster count + Manage list pick up the
+  // cloud roster. Group filters still re-render only the leaderboard from the cache — no refetch.
+  fetchStudents().then((rows) => { CS.lbRows = rows || []; draw(); })
     .catch((e) => { const w = document.getElementById('lb-wrap'); if (w) { clear(w).append(h('h2', {}, '🏆 Leaderboard'), h('div', { class: 'hint tiny' }, 'Could not load: ' + e.message.slice(0, 60))); } });
   return wrap;
 }
@@ -352,8 +367,9 @@ function addStudents(r) {
 
 function localRosterList(r) {
   const wrap = h('div', { class: 'section', style: { marginTop: '8px' } });
+  const all = rosterList(); // cloud ∪ local — self-enrolled students used to be invisible here
   for (const g of [...GROUPS, { id: 'teacher', label: 'Teachers' }]) {
-    const studs = r.students.filter((s) => (s.g || 'ms') === g.id);
+    const studs = all.filter((s) => (s.g || 'ms') === g.id);
     if (!studs.length) continue;
     wrap.append(h('div', { class: 'hint tiny', style: { fontWeight: 700, margin: '10px 0 4px' } }, `${g.label} (${studs.length})`));
     for (const s of studs) {
@@ -361,7 +377,16 @@ function localRosterList(r) {
         h('div', {}, h('b', {}, nameOf(s)), h('span', { class: 'hint tiny', style: { marginLeft: '8px', fontFamily: 'var(--mono)' } }, s.u || '')),
         h('div', { class: 'row', style: { gap: '4px' } },
           h('button', { class: 'btn small ghost', title: 'Copy student link', onclick: (e) => copy(studentLink(s, r.coach), e.currentTarget, '✓') }, '🔗'),
-          h('button', { class: 'btn small ghost', title: 'Remove', onclick: () => { r.students = r.students.filter((x) => x !== s); saveRoster(r); pushToCloud(r); CS.lbRows = null; draw(); } }, '🗑'))));
+          h('button', { class: 'btn small ghost', title: 'Remove', onclick: async (e) => {
+            if (!confirm(`Remove ${nameOf(s)} from the club? They'll come off the leaderboard.`)) return;
+            e.currentTarget.textContent = '…';
+            // Also DELETE from the cloud — this only filtered the local list, so removed students
+            // stayed ranked on every device forever (removeStudent existed but was never called).
+            r.students = (r.students || []).filter((x) => String(x.u || '').toLowerCase() !== String(s.u || '').toLowerCase());
+            saveRoster(r);
+            try { await removeStudent(s.u); } catch { /* offline — they'll linger until next try */ }
+            CS.lbRows = null; draw();
+          } }, '🗑'))));
     }
   }
   return wrap;
@@ -370,12 +395,17 @@ function localRosterList(r) {
 // ============================ update ratings / sync ============================
 async function updateClass(r) {
   if (CS.updating) return;
+  // Iterate the REAL roster (cloud ∪ local). This used to walk r.students — the device-local list —
+  // which is empty on a coach whose students all self-enrolled, so the button did nothing at all.
+  const students = rosterList();
+  if (!students.length) { alert('No students yet — share your join link under “＋ Manage roster,” or add them by hand.'); return; }
+  r.students = students; // keep the local cache/backup in step with the cloud
   CS.updating = true; draw();
   const tc = store.get('profile.timeClass', 'rapid');
   const useTc = tc && tc !== 'all' ? tc : 'rapid';
   const gamesByUser = {};
   let done = 0;
-  for (const s of r.students) {
+  for (const s of students) {
     const key = s.u.toLowerCase();
     try {
       const games = await cc.fetchRecentGames(s.u, { months: 4, timeClass: 'all', limit: 100 });
@@ -391,7 +421,7 @@ async function updateClass(r) {
     } catch { CS.forms[key] = { rating: null, form: null }; }
     if (!CS.updating) return;
     done++;
-    const pr = document.getElementById('cls-progress'); if (pr) pr.textContent = `Pulling games… ${done}/${r.students.length}`;
+    const pr = document.getElementById('cls-progress'); if (pr) pr.textContent = `Pulling games… ${done}/${students.length}`;
   }
   ingestLadder(r, gamesByUser);
   saveRoster(r);

@@ -52,7 +52,7 @@ function trainAllWeak(focus) {
   CTX.navigate('train');
 }
 
-const S = { username: '', timeClass: null, gamesTC: null, games: [], analyses: {} }; // analyses keyed by game.url; timeClass null = auto-pick primary; gamesTC = category shown in the games list
+const S = { username: '', viewing: null, timeClass: null, gamesTC: null, games: [], analyses: {} }; // analyses keyed by game.url; timeClass null = auto-pick primary; gamesTC = category shown in the games list; viewing = a STUDENT the coach opened (null = the device owner's own report)
 let CTX = null;
 let host = null; // main container
 let pendingImport = null;
@@ -64,10 +64,31 @@ export function render(container, ctx) {
   CTX = ctx;
   host = container;
   const p = store.get('profile', {});
-  S.username = pendingImport || S.username || p.username || '';
+  const owner = p.username || '';
+  const prev = S.username;
+  // S.username is a module singleton. It used to be `pendingImport || S.username || owner`, so once a
+  // coach opened a student's "Full report" it STUCK — coming back to My Chess rendered that student's
+  // rating/games under the coach's own name. Always fall back to the owner unless a student was just
+  // explicitly requested.
+  S.viewing = pendingImport || null;
+  S.username = pendingImport || owner;
+  // Switching player must drop the previous player's loaded games, or drawHome renders the old
+  // games under the new name.
+  if ((S.username || '').toLowerCase() !== (prev || '').toLowerCase()) {
+    cancelBanking(); S._bankingStarted = false; S._scanned = null;
+    S.games = []; S.analyses = {}; S.timeClass = null; S.gamesTC = null;
+  }
   drawHome();
   if (pendingImport) { pendingImport = null; S._autoScanned = false; doImport(); }
   else if (S.username && !S.games.length) { doImport(); } // auto-load on open
+}
+
+// Coach is looking at someone else's report — make that unmistakable and give them a way out.
+function viewingBanner() {
+  if (!S.viewing) return null;
+  return h('div', { class: 'card section', style: { borderColor: 'var(--accent-2)', boxShadow: '0 0 0 1px rgba(108,168,255,.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+    h('div', {}, h('b', {}, `👁 Viewing ${S.viewing}`), h('div', { class: 'hint tiny' }, 'This is their report, not yours.')),
+    h('button', { class: 'btn small', onclick: () => { S.viewing = null; CTX.navigate('class'); } }, '✕ Back to students'));
 }
 
 function depth() { return store.get('profile.engineDepth', 14); }
@@ -83,11 +104,13 @@ function currentAnalyses() {
 function drawHome() {
   clear(host);
   const owner = store.get('profile.ownerName', '');
+  const title = S.viewing ? `${S.viewing}'s report` : (owner ? `${owner}'s coach` : 'Your coach');
   host.append(...[
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
-      h('h1', {}, owner ? `${owner}'s coach` : 'Your coach'),
+      h('h1', {}, title),
       S.games.length ? h('div', { class: 'hint tiny' }, `Last ${S.games.length} games · `, h('a', { href: 'javascript:void 0', onclick: () => reSync() }, 'refresh')) : null),
-    store.get('profile.welcomeSeen') ? null : welcomeCard(),
+    viewingBanner(),
+    (S.viewing || store.get('profile.welcomeSeen')) ? null : welcomeCard(),
     h('div', { id: 'report-area', class: 'section' }),
   ].filter(Boolean));
   const area = document.getElementById('report-area');
@@ -126,7 +149,7 @@ function welcomeCard() {
     item('🎯', 'Train', 'A daily puzzle set built for your weak spots, plus Puzzle Storm and focused drills.'),
     admin ? item('👥', 'Class — your players', 'Add students by Chess.com username (no logins needed), see each one\'s form and weaknesses, and open any of them in the full review.') : null,
     admin ? item('🏆', 'Tournament', 'Build an event from a roster and auto-generate pairings (Swiss / round-robin / balanced) with live standings.') : null,
-    h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, 'Tip: add your Anthropic API key in ⚙ Settings to unlock the AI chat coach on moves and puzzles.'));
+    h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, '💬 Tip: tap "Ask the coach" on any move — the AI coach is built in and ready to go.'));
   return card;
 }
 
@@ -207,7 +230,9 @@ async function drawReport() {
     const accDelta = last10Delta(I);
     const today = dailyPlan(dims, I, I.openings);
     const narr = narratives(dims, accDelta);
-    persistFocus(analyses, today);
+    // train.focus/plan/questions are device-global (the OWNER's). Writing them while a coach views a
+    // student overwrote the coach's own puzzle plan + drills with that kid's blunders.
+    if (!S.viewing) persistFocus(analyses, today);
     recordSnapshot(S.username, { rating: myGames[0]?.userRating || I.ratingAvg, acc: I.accAvg, dims });
     publishAssessment(myGames[0]?.userRating || I.ratingAvg, I.accAvg, dims); // share the REAL dims so the coach's leaderboard digest matches this report
     startBanking(allMine); // bank the rest of the games deeply, in the background
@@ -261,17 +286,17 @@ async function drawReport() {
   }
 }
 
-// Next steps: review your games (the free game review) + where to actually train (Aimchess)
-// + study your openings. We're the analysis + review layer; training happens elsewhere.
+// Next steps: review your games, drill them in OUR Puzzles tab, study your openings.
+// (This used to point at aimchess.com — a competitor's paywall — from before the Puzzles tab existed.)
 function nextStepsCard() {
   return h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.22)' } },
     h('div', { style: { fontWeight: 800, fontSize: '17px', marginBottom: '10px' } }, '📋 Your next steps'),
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' } },
       h('div', { style: { minWidth: 0 } }, h('b', {}, '🎬 Review your games'), h('div', { class: 'hint tiny' }, 'Play back what you actually played and see exactly where it turned.')),
       h('button', { class: 'btn', onclick: () => { const g = document.getElementById('games-section'); if (g) g.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 'Review →')),
-    h('div', { class: 'hint tiny', style: { fontWeight: 600, margin: '12px 0 6px', borderTop: '1px solid var(--line)', paddingTop: '10px' } }, 'To actually drill your weak spots, we point you to the best tools:'),
+    h('div', { class: 'hint tiny', style: { fontWeight: 600, margin: '12px 0 6px', borderTop: '1px solid var(--line)', paddingTop: '10px' } }, 'Then drill your weak spots:'),
     h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } },
-      h('a', { class: 'btn ghost small', href: 'https://aimchess.com', target: '_blank', rel: 'noopener' }, '↗ Train tactics on Aimchess'),
+      h('button', { class: 'btn ghost small', onclick: () => CTX.navigate('train') }, '🧩 Train tactics'),
       h('button', { class: 'btn ghost small', onclick: () => CTX.navigate('openings') }, '📖 Study your openings')),
     h('div', { class: 'hint tiny', style: { marginTop: '10px' } }, '♟ Coach\'s rule: ~3 focused games a day, and if you lose 2 in a row, call it a day — tilt costs more rating than any opening.'));
 }
@@ -357,6 +382,9 @@ function publishAssessment(rating, acc, dims) {
 function leaderboardPeek() {
   if (!cloudEnabled()) return null;
   const me = (S.username || '').toLowerCase();
+  // Rank by whatever rating we actually have: the coach's manual ladder sync, else the daily
+  // Chess.com cron, else their puzzle rating.
+  const rateOf = (x) => x.ladder_rating ?? x.chesscom_rating ?? x.puzzle_rating ?? null;
   const wrap = h('div', { class: 'card section', id: 'lb-peek' }, h('h2', {}, '🏆 Where you rank'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
   const medal = ['🥇', '🥈', '🥉'];
   const rowEl = (x, i) => {
@@ -364,11 +392,13 @@ function leaderboardPeek() {
     return h('div', { class: 'lbp-row' + (mine ? ' me' : '') },
       h('div', { class: 'lbp-rank' }, i < 3 ? medal[i] : '#' + (i + 1)),
       h('div', { class: 'lbp-name' }, x.name || x.username || 'Player', mine ? h('span', { class: 'lbp-you' }, 'you') : null),
-      h('div', { class: 'lbp-rt' }, x.ladder_rating));
+      h('div', { class: 'lbp-rt' }, rateOf(x)));
   };
   fetchStudents().then((rows) => {
     if (!document.getElementById('lb-peek')) return;
-    const ranked = (rows || []).filter((x) => x.ladder_rating != null).sort((a, b) => b.ladder_rating - a.ladder_rating);
+    // ladder_rating is only written by the coach's MANUAL sync, so keying on it alone made this card
+    // (the most motivating one) delete itself for everyone. chesscom_rating is kept fresh by the daily cron.
+    const ranked = (rows || []).filter((x) => rateOf(x) != null).sort((a, b) => rateOf(b) - rateOf(a));
     if (ranked.length < 2) { wrap.remove(); return; } // nothing motivating to show for a lone player
     const myIdx = ranked.findIndex((x) => (x.username || '').toLowerCase() === me);
     // podium (0,1,2) + a window around you (you-1, you, you+1)
@@ -401,7 +431,8 @@ function renderReport(area, R) {
   renderSkills(area, R.dims);                             // ...skills
   const lb = leaderboardPeek(); if (lb) area.append(lb);  // pairs with...
   area.append(gamesDetails());                            // ...your games
-  renderBadges(area, badgeData(R.myGames, R.eloPoints));
+  // Badges come from device-local progress (the OWNER's) — never show them on a student's report.
+  if (!S.viewing) renderBadges(area, badgeData(R.myGames, R.eloPoints));
   area.append(full(everythingDrawer(R)));
 }
 
@@ -493,7 +524,7 @@ function focusPlanCard(R) {
     ...focus.slice(0, 3).map(row),
     h('div', { class: 'row', style: { marginTop: '12px', gap: '10px', flexWrap: 'wrap' } },
       h('button', { class: 'btn', onclick: () => trainAllWeak(focus) }, '🎯 Train all in one session →'),
-      h('a', { class: 'btn ghost small', href: 'https://aimchess.com', target: '_blank', rel: 'noopener' }, '↗ More drills')),
+      h('button', { class: 'btn ghost small', onclick: () => CTX.navigate('train') }, '🧩 More puzzles')),
     goingWell.length ? h('div', { style: { marginTop: '14px', borderTop: '1px solid var(--line)', paddingTop: '12px' } },
       h('div', { class: 'hint tiny', style: { fontWeight: 700, color: 'var(--good)', marginBottom: '6px' } }, '✅ What\'s going well'),
       ...goingWell.slice(0, 2).map((it) => h('div', { class: 'hint', style: { fontSize: '13px', marginBottom: '3px' } }, h('b', { style: { color: 'var(--text)' } }, it.title + ' '), it.detail || ''))) : null);
@@ -959,7 +990,7 @@ function renderReview(game, analysis) {
 
   // Top "entrance" card: a one-sentence recap + tap-to-jump key moments. On mobile it sits above
   // the board (scroll down to the board view); on desktop it leads the review.
-  const km = keyMoments(analysis);
+  const km = keyMoments(analysis, game.userColor);
   const keyPlies = new Set(km.map((m) => m.ply));
   const jumpToPly = (ply) => { stepTo(ply); document.getElementById('board')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   const introCard = h('div', { class: 'card section review-intro' },
@@ -1183,10 +1214,12 @@ function gameNarrative(game, analysis) {
 
 // The handful of moves that decided (or defined) the game — biggest win-chance swings plus any
 // standout finds — in move order, each tappable to jump there.
-function keyMoments(analysis) {
+// `color` = the player's color. Without it this returned the OPPONENT's blunders too and coached
+// the player on moves they never made (and contradicted the move-quality chips right above it).
+function keyMoments(analysis, color) {
   const NOTE = new Set(['Blunder', 'Mistake', 'Brilliant', 'Great', 'Miss']);
   const bonus = (l) => l === 'Brilliant' ? 45 : l === 'Great' ? 35 : l === 'Blunder' ? 10 : l === 'Mistake' ? 4 : 0;
-  return (analysis.plies || []).map((p, i) => ({ ...p, ply: i + 1 })).filter((p) => NOTE.has(p.label))
+  return (analysis.plies || []).map((p, i) => ({ ...p, ply: i + 1 })).filter((p) => NOTE.has(p.label) && (!color || p.color === color))
     .sort((a, b) => ((b.winLoss || 0) + bonus(b.label)) - ((a.winLoss || 0) + bonus(a.label)))
     .slice(0, 5).sort((a, b) => a.ply - b.ply);
 }
@@ -1327,7 +1360,7 @@ function gameOverviewContext() {
   const count = (isMine, lbl) => a.plies.filter((p) => (p.color === mine) === isMine && p.label === lbl).length;
   const myQuality = ['Blunder', 'Mistake', 'Inaccuracy', 'Miss', 'Great', 'Brilliant']
     .map((l) => { const n = count(true, l); return n ? `${n} ${l.toLowerCase()}${n === 1 ? '' : 's'}` : null; }).filter(Boolean).join(', ') || 'nothing notably good or bad';
-  const km = keyMoments(a).map((m) => `${m.moveNumber}${m.color === 'white' ? '.' : '…'} ${m.san} (${m.label})`).join('; ');
+  const km = keyMoments(a, mine).map((m) => `${m.moveNumber}${m.color === 'white' ? '.' : '…'} ${m.san} (${m.label})`).join('; ');
   const result = g.userResult === 'win' ? 'won' : g.userResult === 'loss' ? 'lost' : 'drew';
   const est = estRatingFromAcc(myAcc);
   return 'WHOLE-GAME SUMMARY (use this for any question about the game overall):\n' +
