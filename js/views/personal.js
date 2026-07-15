@@ -606,9 +606,13 @@ function keyFindingsCard(host, R) {
   const stat = (k, v, sub) => h('div', { class: 'stat' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v ?? '—'), sub ? h('div', { class: 'hint tiny' }, sub) : null);
   const phase = I.phaseLossRanked?.[0];
   const mistake = I.mistakeTypesRanked?.[0];
+  // THE stable one: a level from the AVERAGE accuracy across the whole analyzed window. Per-game
+  // estimates swing hundreds of points; this only moves when the player actually moves.
+  const lvl = estRatingBand(I.accAvg);
   host.append(h('div', { class: 'card section' },
     h('h2', {}, '🔑 Key findings'),
     h('div', { class: 'stat-grid' },
+      stat('Playing level', lvl ? `${lvl.lo}–${lvl.hi}` : '—', `across ${I.games} games`),
       stat('Avg accuracy', I.accAvg != null ? I.accAvg + '%' : '—'),
       stat('Blunders / game', I.rates?.blundersPerGame),
       stat('First slip', I.firstBlunderMove ? 'move ' + I.firstBlunderMove : '—', 'on average'),
@@ -878,7 +882,8 @@ function gameRow(g, older) {
   const a = S.analyses[g.url];
   const ccAcc = g.accuracies && g.accuracies[g.userColor] != null ? Math.round(g.accuracies[g.userColor]) : null;
   const acc = a ? Math.round(a.accuracy[g.userColor]) : ccAcc;
-  const est = acc != null ? estRatingFromAcc(acc) : null;
+  const band = acc != null ? estRatingBand(acc) : null;
+  const lvl = levelVs(band, g.userRating);
   const after = g.userRating, before = older ? older.userRating : null;
   const delta = (before != null && after != null) ? after - before : null;
   const dCol = delta > 0 ? 'var(--good)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
@@ -892,7 +897,7 @@ function gameRow(g, older) {
         h('span', { class: 'grow-rt' }, before != null ? `${before} → ${after}` : `${after ?? '—'}`,
           delta != null ? h('b', { style: { color: dCol, marginLeft: '5px' } }, `${delta >= 0 ? '▲' : '▼'}${Math.abs(delta)}`) : null),
         acc != null ? h('span', { style: { color: accColor(acc) } }, `${acc}% acc`) : h('span', { class: 'hint tiny' }, 'not analyzed'),
-        est != null ? h('span', { class: 'grow-est' }, `≈${est}`) : null)),
+        lvl ? h('span', { class: 'grow-est', style: { color: lvl.color }, title: `${bandText(band)} — ${lvl.label}` }, `${lvl.glyph} ${bandText(band)}`) : null)),
     h('button', { class: 'btn small ghost', onclick: (e) => { e.stopPropagation(); openReview(g); } }, a ? 'Review' : 'Analyze'));
 }
 
@@ -972,9 +977,14 @@ function renderReview(game, analysis) {
   const useCC = cc && cc.white != null && cc.black != null;
   const accW = useCC ? Math.round(cc.white) : analysis.accuracy.white;
   const accB = useCC ? Math.round(cc.black) : analysis.accuracy.black;
+  // Judge each side against THEIR OWN rating, and say plainly who the player was.
+  const wRating = game.userColor === 'white' ? game.userRating : game.oppRating;
+  const bRating = game.userColor === 'black' ? game.userRating : game.oppRating;
+  const youW = game.userColor === 'white';
   const accBar = h('div', { class: 'accbar card', style: { padding: '12px 16px' } },
-    accSide('White', accW, estRatingFromAcc(accW)), accSide('Black', accB, estRatingFromAcc(accB)),
-    h('div', { class: 'hint', style: { marginLeft: 'auto', textAlign: 'right' } }, useCC ? 'Chess.com accuracy · est. level' : `engine accuracy · depth ${analysis.depth} · est. level`));
+    accSide(youW ? 'White (you)' : 'White', accW, estRatingBand(accW), wRating),
+    accSide(youW ? 'Black' : 'Black (you)', accB, estRatingBand(accB), bRating),
+    h('div', { class: 'hint', style: { marginLeft: 'auto', textAlign: 'right' } }, useCC ? 'Chess.com accuracy · est. range' : `engine accuracy · depth ${analysis.depth} · est. range`));
 
   const explainBox = h('div', { class: 'explain-box', id: 'explain' });
   const moveList = h('div', { class: 'movelist', id: 'movelist' });
@@ -1160,11 +1170,30 @@ function estRatingFromAcc(acc) {
   return pts[pts.length - 1][1];
 }
 
-function accSide(name, v, est) {
+// ONE game's accuracy cannot honestly produce ONE rating — the same 1211 player read ≈900 in one
+// game and ≈2250 in the next. So we report a RANGE (the real uncertainty) and, more usefully, judge
+// it against the rating they actually carry: did they play above, at, or below their own level?
+const EST_BAND = 175;
+function estRatingBand(acc) {
+  const mid = estRatingFromAcc(acc);
+  if (mid == null) return null;
+  return { mid, lo: Math.max(100, mid - EST_BAND), hi: mid + EST_BAND };
+}
+function levelVs(band, rating) {
+  if (!band || rating == null) return null;
+  if (rating < band.lo) return { key: 'above', label: 'above your level', color: 'var(--good)', glyph: '▲' };
+  if (rating > band.hi) return { key: 'below', label: 'below your level', color: 'var(--bad)', glyph: '▼' };
+  return { key: 'at', label: 'at your level', color: 'var(--muted)', glyph: '●' };
+}
+const bandText = (b) => `≈ ${b.lo}–${b.hi}`;
+
+function accSide(name, v, band, rating) {
+  const lvl = levelVs(band, rating);
   return h('div', {},
     h('div', { class: 'acc', style: { color: v == null ? 'var(--muted)' : accColor(v) } }, pct(v)),
     h('div', { class: 'who' }, name + ' accuracy'),
-    est != null ? h('div', { class: 'est-rating', title: 'Estimated playing level for this game, from accuracy' }, `≈ ${est} level`) : null);
+    band ? h('div', { class: 'est-rating', title: 'The range this game was played at — one game can\'t pin it closer than this' }, bandText(band)) : null,
+    lvl ? h('div', { class: 'est-level', style: { color: lvl.color } }, `${lvl.glyph} ${lvl.label}`) : null);
 }
 
 function plural(lbl, n) {
@@ -1362,10 +1391,11 @@ function gameOverviewContext() {
     .map((l) => { const n = count(true, l); return n ? `${n} ${l.toLowerCase()}${n === 1 ? '' : 's'}` : null; }).filter(Boolean).join(', ') || 'nothing notably good or bad';
   const km = keyMoments(a, mine).map((m) => `${m.moveNumber}${m.color === 'white' ? '.' : '…'} ${m.san} (${m.label})`).join('; ');
   const result = g.userResult === 'win' ? 'won' : g.userResult === 'loss' ? 'lost' : 'drew';
-  const est = estRatingFromAcc(myAcc);
+  const band = estRatingBand(myAcc);
+  const lvl = levelVs(band, g.userRating);
   return 'WHOLE-GAME SUMMARY (use this for any question about the game overall):\n' +
-    `The player is ${mine} and ${result} vs ${g.opponent}. ${gameNarrative(g, a)}\n` +
-    `Accuracy — player ${pct(myAcc)}${est ? ` (played around a ${est} level)` : ''}, opponent ${pct(oppAcc)}.\n` +
+    `The player is ${mine} (rated ${g.userRating ?? '?'}) and ${result} vs ${g.opponent} (rated ${g.oppRating ?? '?'}). ${gameNarrative(g, a)}\n` +
+    `Accuracy — player ${pct(myAcc)}${band ? ` (this one game reads like a ${band.lo}-${band.hi} level${lvl ? `, i.e. ${lvl.label}` : ''} — a single game is noisy, don't over-claim it)` : ''}, opponent ${pct(oppAcc)}.\n` +
     `The player's move quality this game: ${myQuality}.\n` +
     (km ? `Turning points / key moves: ${km}.\n` : '') +
     `The game lasted about ${Math.ceil(a.plies.length / 2)} moves.\n`;

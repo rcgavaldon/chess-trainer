@@ -245,6 +245,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .accbar .acc { font-size: 30px; font-weight: 800; font-family: var(--mono); letter-spacing: -1px; line-height: 1; }
 .accbar .who { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
 .est-rating { font-family: var(--mono); font-weight: 700; font-size: 12px; color: var(--accent-2); margin-top: 3px; }
+.est-level { font-size: 11px; font-weight: 800; margin-top: 2px; letter-spacing: .2px; }
 
 /* ---- progress ---- */
 .progress { height: 8px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin-top: 10px; }
@@ -515,6 +516,7 @@ details.more > summary:hover { color: var(--text); }
   #review-card .accbar .acc { font-size: 17px; }
   #review-card .accbar .who { font-size: 9px; margin-top: 0; }
   #review-card .accbar .est-rating { font-size: 10px; margin-top: 1px; }
+  #review-card .accbar .est-level { font-size: 9.5px; margin-top: 1px; }
   #review-card .accbar .hint { font-size: 10px; }
   #review-card .chip-row.section { margin-top: 7px; gap: 5px; }
   #review-card .chip-row .chip { padding: 3px 8px; font-size: 11px; border-radius: 14px; }
