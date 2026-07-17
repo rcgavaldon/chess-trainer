@@ -5,6 +5,7 @@ import { h, clear } from './dom.js';
 import * as store from './storage.js';
 import { Chess } from 'chess.js';
 import { createBoard } from './board.js';
+import { coachEndpoint } from './coach.js';
 
 const LIB_KEY = 'library';
 const uid = () => 'g' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -43,6 +44,50 @@ function parseOne(pgn) {
 }
 export function parsePgnText(text) { return splitGames(text).map(parseOne).filter(Boolean); }
 
+// ---- scoresheet photo → PGN, via Claude vision through the coach proxy (beta) ----
+// Downscale in-browser so the upload is small and inside the vision API's size limits.
+function fileToScaledImage(file, maxEdge = 1568) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale)), hh = Math.max(1, Math.round(img.height * scale));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
+      cv.getContext('2d').drawImage(img, 0, 0, w, hh);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+      const m = dataUrl.match(/^data:(.+?);base64,(.*)$/);
+      return m ? resolve({ media_type: m[1], data: m[2] }) : reject(new Error('bad image'));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image.')); };
+    img.src = url;
+  });
+}
+async function scanScoresheet(files, onResult, onStatus) {
+  const ep = coachEndpoint();
+  if (!ep.headers) { onStatus('The AI reader isn\'t available on this device.', true); return; }
+  onStatus('📷 Reading your scoresheet…');
+  let imgs;
+  try { imgs = await Promise.all([...files].slice(0, 3).map((f) => fileToScaledImage(f))); }
+  catch (e) { onStatus('⚠ ' + e.message, true); return; }
+  const content = imgs.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.media_type, data: im.data } }));
+  content.push({ type: 'text', text:
+    'This photo (or these photos) show a chess game scoresheet — handwritten or printed. Read the moves and output them as PGN movetext ONLY, like "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6". Include the result (1-0, 0-1, or 1/2-1/2) at the end if it is written. ' +
+    'Output ONLY the moves — no headers, no commentary, no code fences, no explanation. Use standard algebraic notation (SAN). If a move is genuinely unreadable, put your best legal guess. If there are two photos, they are the two halves of the same game, in order (White column then Black, top to bottom).' });
+  try {
+    const res = await fetch(ep.url, { method: 'POST', headers: ep.headers,
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500, messages: [{ role: 'user', content }] }) });
+    if (!res.ok) throw new Error(res.status === 429 ? 'Busy — try again in a moment.' : res.status === 401 ? 'Reader unavailable.' : 'Scan failed (' + res.status + ').');
+    const data = await res.json();
+    let text = (data.content || []).map((b) => b.text || '').join('').trim();
+    text = text.replace(/^```[a-z]*\n?/i, '').replace(/```$/i, '').trim(); // strip any stray code fence
+    if (!text) throw new Error('Couldn\'t make out any moves — try a clearer, straight-on photo.');
+    onResult(text);
+    onStatus('✓ Read it — check the moves and fix any it misread, then Import.');
+  } catch (e) { onStatus('⚠ ' + e.message, true); }
+}
+
 // ---- entry point (called from the Puzzles hub) ----
 export function renderLibrary(host, ctx, back) {
   CTX = ctx; HOST = host; BACK = back;
@@ -68,15 +113,18 @@ function drawCatalog(msg) {
 
 function importCard() {
   const fileInput = h('input', { type: 'file', accept: '.pgn,.txt,text/plain', multiple: true, style: { display: 'none' }, onchange: (e) => handleFiles(e.target.files) });
+  const photoInput = h('input', { type: 'file', accept: 'image/*', capture: 'environment', multiple: true, style: { display: 'none' },
+    onchange: (e) => { const fs = e.target.files; if (fs && fs.length) scanScoresheet(fs, (pgn) => { ta.value = pgn; pasteWrap.style.display = 'block'; }, flash); e.target.value = ''; } });
   const pasteWrap = h('div', { style: { display: 'none', marginTop: '10px' } });
-  const ta = h('textarea', { rows: 4, placeholder: 'Paste one or many games in PGN here…', style: { width: '100%', fontFamily: 'var(--mono)', fontSize: '12px' } });
-  pasteWrap.append(ta, h('div', { class: 'row', style: { marginTop: '8px' } }, h('button', { class: 'btn small', onclick: () => importText(ta.value) }, 'Import pasted PGN')));
+  const ta = h('textarea', { rows: 5, placeholder: 'Paste PGN here — or a scanned scoresheet lands here to check…', style: { width: '100%', fontFamily: 'var(--mono)', fontSize: '12px' } });
+  pasteWrap.append(ta, h('div', { class: 'row', style: { marginTop: '8px' } }, h('button', { class: 'btn small', onclick: () => importText(ta.value) }, 'Import these moves')));
   return h('div', { class: 'card section', style: { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18)' } },
     h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } },
       h('button', { class: 'btn', onclick: () => fileInput.click() }, '📄 Import PGN file'),
-      h('button', { class: 'btn ghost small', onclick: () => { pasteWrap.style.display = pasteWrap.style.display === 'none' ? 'block' : 'none'; } }, '📋 Paste instead')),
-    fileInput, pasteWrap, state.status,
-    h('div', { class: 'hint tiny', style: { marginTop: '6px' } }, 'New games land in ', h('b', {}, folderName()), '. ', h('a', { href: 'javascript:void 0', onclick: () => newFolder() }, '+ new folder')));
+      h('button', { class: 'btn', onclick: () => photoInput.click() }, '📷 Scan a scoresheet'),
+      h('button', { class: 'btn ghost small', onclick: () => { pasteWrap.style.display = pasteWrap.style.display === 'none' ? 'block' : 'none'; } }, '📋 Paste')),
+    fileInput, photoInput, pasteWrap, state.status,
+    h('div', { class: 'hint tiny', style: { marginTop: '6px' } }, '📷 Scan reads a photo of a paper scoresheet into moves (beta — best with a clear, straight-on photo; you get to fix any misreads before saving). New games land in ', h('b', {}, folderName()), '. ', h('a', { href: 'javascript:void 0', onclick: () => newFolder() }, '+ new folder')));
 }
 
 function handleFiles(files) {
