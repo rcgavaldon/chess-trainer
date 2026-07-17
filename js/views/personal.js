@@ -104,7 +104,7 @@ function viewingBanner() {
     h('button', { class: 'btn small', onclick: () => { S.viewing = null; CTX.navigate('class'); } }, '✕ Back to students'));
 }
 
-function depth() { return store.get('profile.engineDepth', 14); }
+function depth() { return store.get('profile.engineDepth', 17); } // near-max default; on-demand reviews use this
 
 // Analyses belonging to the player currently loaded (owner or a student under review),
 // so the Improve dashboard / training never mixes two players' games.
@@ -692,7 +692,7 @@ async function deepScanInto(area, games, n) {
     h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'First-time setup — building your report from your games. It\'s saved, so next time is instant.'),
     h('div', { class: 'progress' }, bar)));
   const engine = await CTX.ensureEngine();
-  const d = depth();
+  const d = Math.min(depth(), 13); // first-run bulk pass stays fast; banking + on-demand review go deeper
   let done = 0;
   for (const g of targets) {
     g.username = S.username;
@@ -899,7 +899,8 @@ function gameRow(g, older) {
   const ccAcc = g.accuracies && g.accuracies[g.userColor] != null ? Math.round(g.accuracies[g.userColor]) : null;
   const acc = a ? Math.round(a.accuracy[g.userColor]) : ccAcc;
   const band = acc != null ? estRatingBand(acc) : null;
-  const lvl = levelVs(band, g.userRating);
+  const myMoves = a ? a.plies.filter((p) => p.color === g.userColor).length : null;
+  const lvl = (myMoves == null || myMoves >= EST_MIN_MOVES) ? levelVs(band, g.userRating) : null;
   const after = g.userRating, before = older ? older.userRating : null;
   const delta = (before != null && after != null) ? after - before : null;
   const dCol = delta > 0 ? 'var(--good)' : delta < 0 ? 'var(--bad)' : 'var(--muted)';
@@ -998,9 +999,11 @@ function renderReview(game, analysis) {
   const wRating = game.userColor === 'white' ? game.userRating : game.oppRating;
   const bRating = game.userColor === 'black' ? game.userRating : game.oppRating;
   const youW = game.userColor === 'white';
+  const wMoves = analysis.plies.filter((p) => p.color === 'white').length;
+  const bMoves = analysis.plies.filter((p) => p.color === 'black').length;
   const accBar = h('div', { class: 'accbar card', style: { padding: '12px 16px' } },
-    accSide(youW ? 'White (you)' : 'White', accW, estRatingBand(accW), wRating),
-    accSide(youW ? 'Black' : 'Black (you)', accB, estRatingBand(accB), bRating),
+    accSide(youW ? 'White (you)' : 'White', accW, estRatingBand(accW), wRating, wMoves),
+    accSide(youW ? 'Black' : 'Black (you)', accB, estRatingBand(accB), bRating, bMoves),
     h('div', { class: 'hint', style: { marginLeft: 'auto', textAlign: 'right' } }, useCC ? 'Chess.com accuracy · est. range' : `engine accuracy · depth ${analysis.depth} · est. range`));
 
   const explainBox = h('div', { class: 'explain-box', id: 'explain' });
@@ -1204,12 +1207,17 @@ function levelVs(band, rating) {
 }
 const bandText = (b) => `≈ ${b.lo}–${b.hi}`;
 
-function accSide(name, v, band, rating) {
-  const lvl = levelVs(band, rating);
+// Fewer than this many of a side's own moves and an accuracy → level estimate is meaningless — a
+// short/booky game reads ~99% and would claim "2400" for a 1200 player. Below it, show nothing.
+const EST_MIN_MOVES = 14;
+function accSide(name, v, band, rating, moves) {
+  const enough = moves == null || moves >= EST_MIN_MOVES;
+  const lvl = enough ? levelVs(band, rating) : null;
   return h('div', {},
     h('div', { class: 'acc', style: { color: v == null ? 'var(--muted)' : accColor(v) } }, pct(v)),
     h('div', { class: 'who' }, name + ' accuracy'),
-    band ? h('div', { class: 'est-rating', title: 'The range this game was played at — one game can\'t pin it closer than this' }, bandText(band)) : null,
+    (band && enough) ? h('div', { class: 'est-rating', title: 'The range this game was played at — one game can\'t pin it closer than this' }, bandText(band))
+      : (band ? h('div', { class: 'est-rating', style: { color: 'var(--muted)' }, title: 'Too few moves to estimate a level from' }, 'too short to rate') : null),
     lvl ? h('div', { class: 'est-level', style: { color: lvl.color } }, `${lvl.glyph} ${lvl.label}`) : null);
 }
 
@@ -1408,11 +1416,13 @@ function gameOverviewContext() {
     .map((l) => { const n = count(true, l); return n ? `${n} ${l.toLowerCase()}${n === 1 ? '' : 's'}` : null; }).filter(Boolean).join(', ') || 'nothing notably good or bad';
   const km = keyMoments(a, mine).map((m) => `${m.moveNumber}${m.color === 'white' ? '.' : '…'} ${m.san} (${m.label})`).join('; ');
   const result = g.userResult === 'win' ? 'won' : g.userResult === 'loss' ? 'lost' : 'drew';
-  const band = estRatingBand(myAcc);
-  const lvl = levelVs(band, g.userRating);
+  const myMoves = a.plies.filter((p) => p.color === mine).length;
+  const enough = myMoves >= EST_MIN_MOVES;
+  const band = enough ? estRatingBand(myAcc) : null;
+  const lvl = enough ? levelVs(band, g.userRating) : null;
   return 'WHOLE-GAME SUMMARY (use this for any question about the game overall):\n' +
     `The player is ${mine} (rated ${g.userRating ?? '?'}) and ${result} vs ${g.opponent} (rated ${g.oppRating ?? '?'}). ${gameNarrative(g, a)}\n` +
-    `Accuracy — player ${pct(myAcc)}${band ? ` (this one game reads like a ${band.lo}-${band.hi} level${lvl ? `, i.e. ${lvl.label}` : ''} — a single game is noisy, don't over-claim it)` : ''}, opponent ${pct(oppAcc)}.\n` +
+    `Accuracy — player ${pct(myAcc)}${band ? ` (this one game reads like a ${band.lo}-${band.hi} level${lvl ? `, i.e. ${lvl.label}` : ''} — a single game is noisy, don't over-claim it)` : (enough ? '' : ' — but this is a very short game, far too few moves to estimate a level, so do NOT claim one')}, opponent ${pct(oppAcc)}.\n` +
     `The player's move quality this game: ${myQuality}.\n` +
     (km ? `Turning points / key moves: ${km}.\n` : '') +
     `The game lasted about ${Math.ceil(a.plies.length / 2)} moves.\n`;

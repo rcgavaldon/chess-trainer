@@ -97,8 +97,8 @@ function openSettings() {
     }).catch(() => {});
   }
   $('set-timeclass').value = p.timeClass || 'rapid';
-  $('set-depth').value = p.engineDepth || 14;
-  $('set-depth-val').textContent = (p.engineDepth || 14);
+  $('set-depth').value = p.engineDepth || 17;
+  $('set-depth-val').textContent = (p.engineDepth || 17);
   $('set-llmkey').value = p.llmKey || '';
   buildSwatches(p.accent || 'green');
   dlg.showModal();
@@ -181,6 +181,13 @@ if (_cls) {
 
 updateOwnerBadge();
 applyTheme(store.get('profile.accent', 'green'));
+// One-time: raise the analysis depth for devices still on the old 14 default — stronger engine by
+// default (near-max, not max). Guarded so a later manual change in Settings sticks.
+if (!store.get('profile.depthBumped')) {
+  const cur = store.get('profile.engineDepth', null);
+  if (cur == null || cur <= 15) store.set('profile.engineDepth', 17);
+  store.set('profile.depthBumped', true);
+}
 // Self-heal: if this device knows the player's US Chess ID, make sure the cloud row has it too
 // (earlier saves silently failed to publish — see cloud.js publishUscfId).
 {
