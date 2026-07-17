@@ -60,9 +60,22 @@ let pendingImport = null;
 // Let the Class view deep-link a student into the full Personal review.
 export function requestImport(username) { pendingImport = username; }
 
+// Let the Imported-games library hand a PGN game straight into the full engine review.
+let pendingReview = null;
+export function requestReviewGame(game) { pendingReview = game; }
+
 export function render(container, ctx) {
   CTX = ctx;
   host = container;
+  // An imported PGN game was sent here for full engine review — open it directly. doImport() runs
+  // in the background (guarded so it won't redraw over the open board) so "← Back to games" works.
+  if (pendingReview) {
+    const g = pendingReview; pendingReview = null;
+    S.viewing = null; S.username = store.get('profile.username', '') || S.username;
+    clear(host); openReview(g);
+    if (S.username && !S.games.length) doImport();
+    return;
+  }
   const p = store.get('profile', {});
   const owner = p.username || '';
   const prev = S.username;
@@ -869,7 +882,8 @@ async function doImport() {
     S.games = games;
     S.timeClass = null; // re-pick the primary time control for this player
     S.gamesTC = null;   // re-pick the games-list category (most-played)
-    if (games.length) { await preloadCached(); drawHome(); }
+    // Don't redraw over an open game review (e.g. an imported-game review loading owner games in bg).
+    if (games.length) { await preloadCached(); if (!document.getElementById('board')) drawHome(); }
     else if (area) clear(area).append(h('div', { class: 'empty' }, `No games found for “${username}”.`));
   } catch (e) {
     if (area) clear(area).append(h('div', { class: 'empty' }, 'Could not load games. ', h('span', { class: 'tiny' }, e.message)));

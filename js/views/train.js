@@ -11,6 +11,7 @@ import { getPuzzleRating, updatePuzzleRating } from '../puzzlerating.js';
 import { themeLabel, themeHint, whyWrong } from '../puzzlemeta.js';
 import { cloudEnabled, logAttempt } from '../cloud.js';
 import { fetchStats as ccFetchStats } from '../chesscom.js';
+import { renderLibrary } from '../library.js';
 
 // SAN of a UCI move from a FEN (for readable history); '' if it can't be played.
 function sanOfUci(fen, uci) {
@@ -131,7 +132,10 @@ function drawHome() {
       h('div', { class: 'card big-card', style: { cursor: 'pointer' }, onclick: startBlunders },
         h('div', {}, h('b', {}, '🎯 Your blunders')),
         h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Replay your own losing moves as puzzles — find what you missed.')),
-      pastPuzzlesCard()),
+      pastPuzzlesCard(),
+      h('div', { class: 'card big-card', style: { cursor: 'pointer' }, onclick: () => renderLibrary(host, CTX, drawHome) },
+        h('div', {}, h('b', {}, '📁 Imported games')),
+        h('div', { class: 'hint tiny', style: { marginTop: '4px' } }, 'Import a PGN scoresheet, sort into folders, replay or review it.'))),
   );
 }
 
