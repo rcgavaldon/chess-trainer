@@ -6,6 +6,23 @@ import * as store from './storage.js';
 import { Chess } from 'chess.js';
 import { createBoard } from './board.js';
 import { coachEndpoint } from './coach.js';
+import { fetchStats, bestRating } from './chesscom.js';
+
+// Which side is the player? Guess from their profile name; null when it can't tell (they pick).
+function inferMe(g) {
+  const me = (store.get('profile.username', '') || '').toLowerCase();
+  const nm = (store.get('profile.ownerName', '') || '').toLowerCase();
+  const hit = (s) => !!s && ((me && s.toLowerCase().includes(me)) || (nm && s.toLowerCase().includes(nm)));
+  if (hit(g.white) && !hit(g.black)) return 'white';
+  if (hit(g.black) && !hit(g.white)) return 'black';
+  return null;
+}
+// The player's current rating, so imported games get the same "above/at/below your level" read.
+async function myRating() {
+  const cached = store.get('profile.peakRating', null);
+  try { const b = bestRating(await fetchStats(store.get('profile.username', ''))); if (b && b.rating) return b.rating; } catch { /* offline */ }
+  return cached;
+}
 
 const LIB_KEY = 'library';
 const uid = () => 'g' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -143,7 +160,7 @@ function importText(text) {
   const games = parsePgnText(text);
   if (!games.length) { flash('⚠ No readable games found in that PGN.', 'var(--bad)'); return; }
   const lib = getLib();
-  for (const g of games) lib.games.unshift({ id: uid(), folderId: state.folder, ...g, ts: Date.now() });
+  for (const g of games) lib.games.unshift({ id: uid(), folderId: state.folder, me: inferMe(g), ...g, ts: Date.now() });
   saveLib(lib);
   drawCatalog();
   flash(`✓ Imported ${games.length} game${games.length > 1 ? 's' : ''} into “${folderName()}”.`, 'var(--good)');
@@ -204,7 +221,14 @@ function gamesList(lib) {
   if (!games.length) return h('div', { class: 'empty section' }, 'No games in this folder yet — import a PGN above.');
   return h('div', { class: 'section', style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, ...games.map(gameRow));
 }
+function setMe(g, color) {
+  const lib = getLib(); const gg = lib.games.find((x) => x.id === g.id);
+  if (gg) { gg.me = color; saveLib(lib); }
+  g.me = color; drawCatalog();
+}
 function gameRow(g) {
+  const youBtn = (color, name) => h('button', { class: 'btn small' + (g.me === color ? '' : ' ghost'), style: { padding: '4px 11px' }, onclick: () => setMe(g, color) },
+    (g.me === color ? '● ' : '') + (name || (color === 'white' ? 'White' : 'Black')));
   return h('div', { class: 'card big-card', style: { padding: '12px 14px' } },
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' } },
       h('div', { style: { minWidth: 0 } },
@@ -214,7 +238,11 @@ function gameRow(g) {
         h('button', { class: 'btn small', onclick: () => openReplay(g) }, '▶ Replay'),
         h('button', { class: 'btn ghost small', onclick: () => reviewWithEngine(g) }, '🔬 Review'),
         h('button', { class: 'btn ghost small', title: 'Move to a folder', onclick: () => moveGame(g) }, '📁'),
-        h('button', { class: 'btn ghost small', title: 'Delete', onclick: () => delGame(g) }, '🗑'))));
+        h('button', { class: 'btn ghost small', title: 'Delete', onclick: () => delGame(g) }, '🗑'))),
+    // Which side were you? Drives board orientation + whose accuracy/level the review reports.
+    h('div', { class: 'row', style: { gap: '6px', marginTop: '9px', alignItems: 'center', flexWrap: 'wrap' } },
+      h('span', { class: 'hint tiny', style: { color: g.me ? 'var(--muted)' : 'var(--warn)', fontWeight: 700 } }, g.me ? 'You played:' : '⚠ You played:'),
+      youBtn('white', g.white), youBtn('black', g.black)));
 }
 
 // ---- self-contained replay (no engine) ----
@@ -223,7 +251,7 @@ function openReplay(g) {
   try { c.loadPgn(g.pgn); } catch { alert('Could not read this game.'); return; }
   const moves = c.history({ verbose: true }); // each: { san, from, to, after (fen) }
   const startFen = new Chess().fen();
-  const R = { ply: 0, orient: 'white' };
+  const R = { ply: 0, orient: g.me || 'white' }; // face the board from the player's side
   clear(HOST);
   const boardEl = h('div', { id: 'lib-board' });
   const status = h('div', { class: 'puzzle-status' }, `${g.white} vs ${g.black} — start`);
@@ -264,19 +292,23 @@ function openReplay(g) {
 
 // ---- hand a game to the full engine review (in My Chess) ----
 async function reviewWithEngine(g) {
-  const me = (store.get('profile.username', '') || '').toLowerCase();
-  const nm = (store.get('profile.ownerName', '') || '').toLowerCase();
-  const w = (g.white || '').toLowerCase(), b = (g.black || '').toLowerCase();
-  const match = (side) => (me && side.includes(me)) || (nm && side.includes(nm));
-  const userColor = match(b) && !match(w) ? 'black' : 'white';
+  // Which side are you? Use the pick if set; if not, ask before we get the color wrong.
+  let userColor = g.me || inferMe(g);
+  if (!userColor) {
+    const ans = (prompt(`Which side were you in “${g.white} vs ${g.black}”?\nType W for White or B for Black:`, 'W') || '').trim().toLowerCase();
+    userColor = ans.startsWith('b') ? 'black' : 'white';
+    setMe(g, userColor); // remember it + re-render; then re-open the review
+    return reviewWithEngine(g);
+  }
   const won = (userColor === 'white' && g.result === '1-0') || (userColor === 'black' && g.result === '0-1');
   const lost = (userColor === 'white' && g.result === '0-1') || (userColor === 'black' && g.result === '1-0');
+  const rating = await myRating(); // so the review shows the same est-Elo range + above/at/below-your-level read
   const gameObj = {
     url: 'imported:' + g.id, pgn: g.pgn, timeClass: 'imported',
     userColor, userResult: won ? 'win' : lost ? 'loss' : 'draw', userResultCode: '',
     opponent: userColor === 'white' ? g.black : g.white, eco: null, accuracies: null,
     dateUTC: g.date ? g.date.replace(/\./g, '-') : new Date().toISOString(),
-    endTime: Math.floor(Date.now() / 1000), userRating: null, oppRating: null,
+    endTime: Math.floor(Date.now() / 1000), userRating: rating, oppRating: null,
     username: store.get('profile.username', ''),
   };
   try {

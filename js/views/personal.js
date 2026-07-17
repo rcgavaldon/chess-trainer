@@ -882,8 +882,10 @@ async function doImport() {
     S.games = games;
     S.timeClass = null; // re-pick the primary time control for this player
     S.gamesTC = null;   // re-pick the games-list category (most-played)
-    // Don't redraw over an open game review (e.g. an imported-game review loading owner games in bg).
-    if (games.length) { await preloadCached(); if (!document.getElementById('board')) drawHome(); }
+    // Don't redraw over an open game review (e.g. an imported-game review loading owner games in the
+    // background). Guard on #review-card — it exists from the FIRST paint of openReview, whereas
+    // #board only appears after the ~30s analysis, leaving a window where drawHome clobbered it.
+    if (games.length) { await preloadCached(); if (!document.getElementById('review-card')) drawHome(); }
     else if (area) clear(area).append(h('div', { class: 'empty' }, `No games found for “${username}”.`));
   } catch (e) {
     if (area) clear(area).append(h('div', { class: 'empty' }, 'Could not load games. ', h('span', { class: 'tiny' }, e.message)));
@@ -976,8 +978,9 @@ async function openReview(game) {
 }
 
 function renderReview(game, analysis) {
-  R.game = game; R.analysis = analysis; R.ply = 0; R.orientation = game.userColor;
   const card = document.getElementById('review-card');
+  if (!card) return; // the user navigated away while this game was still analyzing — don't crash
+  R.game = game; R.analysis = analysis; R.ply = 0; R.orientation = game.userColor;
   clear(card);
 
   const boardEl = h('div', { id: 'board' });
