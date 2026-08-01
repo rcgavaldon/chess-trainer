@@ -23,9 +23,28 @@ export function createBoard(el, config = {}) {
     ...config,
   });
   // Chessground measures its wrap synchronously at construction; mounted into a CSS grid the wrap
-  // can report 0 width mid-layout, which collapses the board to 0px wide. Re-measure once layout
-  // has settled — idempotent when the first measure was already correct.
-  requestAnimationFrame(() => { try { ground.redrawAll(); } catch { /* board may be gone */ } });
+  // can report a wrong (small) size mid-layout, which FREEZES <cg-container> at that size via an
+  // inline width/height. That mis-sizes the board's internal coordinate track, so the a–h / 1–8
+  // labels bunch up in a corner. Re-measure once the wrap settles at its real size, and — belt and
+  // suspenders — clear any stale fixed size off cg-container (it should always be 100% of the wrap).
+  const wrap = el.classList && el.classList.contains('cg-wrap') ? el : (el.querySelector && el.querySelector('.cg-wrap')) || el;
+  const settle = () => {
+    try {
+      ground.redrawAll();
+      const cont = wrap.querySelector && wrap.querySelector('cg-container');
+      if (cont && wrap.clientHeight > 40 && Math.abs(cont.offsetHeight - wrap.clientHeight) > 2) {
+        cont.style.width = '100%'; cont.style.height = '100%';
+      }
+    } catch { /* board may be gone */ }
+  };
+  requestAnimationFrame(settle);
+  // A ResizeObserver catches the common case where the grid/flex column sizes the wrap a frame later.
+  if (window.ResizeObserver) {
+    let lastW = 0;
+    const ro = new ResizeObserver(() => { const w = Math.round(wrap.getBoundingClientRect().width); if (w > 40 && w !== lastW) { lastW = w; settle(); } });
+    try { ro.observe(wrap); } catch { /* ignore */ }
+    setTimeout(() => { try { ro.disconnect(); } catch { /* ignore */ } }, 5000);
+  }
   return ground;
 }
 
