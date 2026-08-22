@@ -478,7 +478,7 @@ function renderReport(area, R) {
     // Kids: keep the motivating stuff RIGHT THERE (rank + badges), skills one tap away, and a simple
     // "ask your coach" — none of the coach's deep-analytics tables.
     const lb = leaderboardPeek(); if (lb) area.append(lb);          // where you rank — visible
-    renderBadges(area, badgeData(R.myGames, R.eloPoints));           // your badges — visible
+    renderBadges(area, badgeData(R.myGames, R.eloPoints), true);     // your badges — visible, locked ones greyed
     area.append(drop('🕸️ Your skills', (b) => renderSkills(b, R.dims, true)));
     accountCoachCard(area, R);                                       // 💬 ask your coach — visible
   } else {
@@ -708,7 +708,9 @@ function badgeData(myGames, eloPoints) {
   return { streak, puzzles, lessons, lessonsTotal: LESSONS.length, winStreak, ratingGain };
 }
 
-function renderBadges(area, data) {
+// showLocked: always render the badge shelf with the not-yet-earned ones greyed out — so a brand-new
+// kid (zero earned) still sees the collection to chase, not an empty space.
+function renderBadges(area, data, showLocked) {
   const badges = computeBadges(data);
   const earned = badges.filter((b) => b.earned);
   const seen = store.get('achievements.seen', []);
@@ -720,11 +722,14 @@ function renderBadges(area, data) {
       h('div', { class: 'row', style: { gap: '18px', marginTop: '10px', flexWrap: 'wrap' } }, ...fresh.map((b) =>
         h('div', { style: { textAlign: 'center' } }, h('div', { style: { fontSize: '32px' } }, b.icon), h('div', { style: { fontWeight: 700, fontSize: '13px' } }, b.name), h('div', { class: 'hint tiny' }, b.desc))))));
   }
-  if (earned.length) {
+  if (earned.length || showLocked) {
+    const shelf = showLocked ? badges : earned;
     area.append(h('div', { class: 'card section' },
       h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } }, h('b', {}, '🏅 Your badges'), h('span', { class: 'hint tiny' }, `${earned.length} of ${badges.length}`)),
-      h('div', { class: 'row', style: { gap: '18px', marginTop: '10px', flexWrap: 'wrap' } }, ...earned.map((b) =>
-        h('div', { title: b.desc, style: { textAlign: 'center', minWidth: '58px' } }, h('div', { style: { fontSize: '26px' } }, b.icon), h('div', { class: 'hint tiny', style: { fontWeight: 700 } }, b.name))))));
+      h('div', { class: 'row', style: { gap: '18px', marginTop: '10px', flexWrap: 'wrap' } }, ...shelf.map((b) =>
+        h('div', { title: b.desc, style: { textAlign: 'center', minWidth: '58px', opacity: b.earned ? '1' : '.32', filter: b.earned ? 'none' : 'grayscale(1)' } },
+          h('div', { style: { fontSize: '26px' } }, b.earned ? b.icon : '🔒'), h('div', { class: 'hint tiny', style: { fontWeight: 700 } }, b.name)))),
+      showLocked && !earned.length ? h('div', { class: 'hint tiny', style: { marginTop: '8px' } }, 'Solve a puzzle or review a game to earn your first one!') : null));
   }
 }
 
