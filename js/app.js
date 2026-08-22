@@ -362,7 +362,7 @@ function showOnboarding() {
         h('div', { class: 'hint tiny' }, 'Where do you play? Pick one — you can add the other later in ⚙ Settings.'),
         field('Where you play', srcWrap),
         field('Your name', nameInput),
-        field(state.source === 'lichess' ? 'Your Lichess username' : 'Your Chess.com username', userInput, 'It\'s the name on your profile page — not your email or real name.'),
+        field('Your username', userInput, 'It\'s the name on your profile page — not your email or real name.'),
         err,
         h('div', { class: 'row', style: { gap: '8px', marginTop: '2px' } },
           btn('← Back', () => { step = 0; render(); }, 'btn ghost small'),
