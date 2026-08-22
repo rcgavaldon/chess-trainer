@@ -293,7 +293,9 @@ async function drawReport() {
     // First-run reveal: the 60-second "your chess, decoded" intro, ONCE. Guard against a re-render
     // (banking / scope change re-calls drawReport before the intro finishes) replaying it: mark it
     // seen immediately, plus a session flag so it can't fire twice on the same load.
-    if (!store.get('profile.introSeen') && !S._introShown) {
+    // The full-screen cinematic reveal was obtrusive (esp. for kids); the connect-your-accounts
+    // onboarding walkthrough is the intro now. Off by default — opt back in via profile.cinematicIntro.
+    if (store.get('profile.cinematicIntro', false) && !store.get('profile.introSeen') && !S._introShown) {
       S._introShown = true;
       store.set('profile.introSeen', true);
       const { superpower, weakness } = superAndWeak(dims);

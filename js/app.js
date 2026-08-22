@@ -260,44 +260,144 @@ startI18n(); // translate the chrome + current view, and observe async-rendered 
 })();
 
 // ---- first-run onboarding (saved on this device) ----
+// First-run walkthrough. Replaces the old bare form + the obtrusive full-screen cinematic reveal:
+// a friendly, user-paced set of cards that (1) explains how it works, then (2) walks a first-timer
+// through hooking up every input — Chess.com OR Lichess (with a picker so kids don't need the
+// `lichess:` trick), and their US Chess ID for official ratings. Lives in the normal view (not a
+// fixed dark takeover), so it doesn't feel intrusive.
 function showOnboarding() {
   const v = document.getElementById('view');
   clear(v);
-  const field = (t, el) => h('label', { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', fontWeight: 500 } }, t, el);
-  const name = h('input', { type: 'text', placeholder: 'Your name (e.g. Robert)' });
-  const user = h('input', { type: 'text', placeholder: 'Chess.com username — or lichess:YourName', onkeydown: (e) => { if (e.key === 'Enter') go.click(); } });
-  // No API-key field here: the shared coach proxy is live, so the AI coach already works for
-  // everyone for free. Asking a 12-year-old for an sk-ant key just made them think it was locked.
-  // (Power users can still set their own key under ⚙ Settings.)
-  let accent = store.get('profile.accent', 'green');
+  const field = (t, el, hint) => h('label', { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', fontWeight: 600 } }, t, el, hint ? h('div', { class: 'hint tiny', style: { fontWeight: 400 } }, hint) : null);
+  const state = { source: 'chesscom', accent: store.get('profile.accent', 'green') };
+  const TOTAL = 4;
+  let step = 0;
+
+  // Persistent input nodes — reused across steps so typed values survive Back/Next.
+  const nameInput = h('input', { type: 'text', placeholder: 'Your name (e.g. Robert)', onkeydown: (e) => { if (e.key === 'Enter') userInput.focus(); } });
+  const userInput = h('input', { type: 'text', autocapitalize: 'none', autocorrect: 'off', spellcheck: false, onkeydown: (e) => { if (e.key === 'Enter') continueConnect(); } });
+  const uscfInput = h('input', { type: 'text', inputMode: 'numeric', placeholder: 'e.g. 12345678', onkeydown: (e) => { if (e.key === 'Enter') { store.set('profile.uscfId', ''); step = 3; render(); } } });
+  const err = h('div', { class: 'hint tiny', style: { color: 'var(--bad)', fontWeight: 700, display: 'none' } });
+  const setPlaceholder = () => { userInput.placeholder = state.source === 'lichess' ? 'Your Lichess username' : 'Your Chess.com username'; };
+
+  // Chess.com / Lichess source picker.
+  const srcWrap = h('div', { class: 'row', style: { gap: '8px' } });
+  [['chesscom', '♟ Chess.com'], ['lichess', '🐴 Lichess']].forEach(([id, lab]) => {
+    const b = h('button', { type: 'button', class: 'btn ghost small' + (id === state.source ? ' active' : ''), onclick: () => { state.source = id; srcWrap.querySelectorAll('button').forEach((x) => x.classList.remove('active')); b.classList.add('active'); setPlaceholder(); err.style.display = 'none'; userInput.focus(); } }, lab);
+    srcWrap.append(b);
+  });
+  setPlaceholder();
+
+  // Accent swatches.
   const accentWrap = h('div', { class: 'swatches' });
   const keys = Object.keys(ACCENTS);
   keys.forEach((k) => {
     const a = ACCENTS[k];
-    const sw = h('div', { class: 'swatch' + (k === accent ? ' active' : ''), style: { background: `linear-gradient(180deg,${a.accent},${a.deep})` },
-      onclick: () => { accent = k; applyTheme(k); accentWrap.querySelectorAll('.swatch').forEach((s, i) => s.classList.toggle('active', keys[i] === k)); } });
+    const sw = h('div', { class: 'swatch' + (k === state.accent ? ' active' : ''), style: { background: `linear-gradient(180deg,${a.accent},${a.deep})` },
+      onclick: () => { state.accent = k; applyTheme(k); accentWrap.querySelectorAll('.swatch').forEach((s, i) => s.classList.toggle('active', keys[i] === k)); } });
     accentWrap.append(sw);
   });
-  const go = h('button', { class: 'btn', style: { marginTop: '6px', alignSelf: 'flex-start' }, onclick: () => {
-    const u = user.value.trim();
-    if (!u) { user.focus(); return; }
-    store.set('profile.ownerName', name.value.trim());
-    store.set('profile.username', u);
-    store.set('profile.accent', accent);
+
+  const card = h('div', { class: 'card', style: { maxWidth: '480px', margin: '6vh auto', display: 'flex', flexDirection: 'column', gap: '15px' } });
+  v.append(card);
+
+  const dots = () => h('div', { style: { display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '4px' } }, ...Array.from({ length: TOTAL }, (_, j) => h('span', { class: 'intro-dot' + (j === step ? ' on' : '') })));
+  const btn = (label, onclick, cls = 'btn') => h('button', { class: cls, onclick }, label);
+  const howRow = (n, title, sub) => h('div', { class: 'row', style: { gap: '12px', alignItems: 'flex-start' } },
+    h('div', { style: { flex: '0 0 26px', width: '26px', height: '26px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' } }, String(n)),
+    h('div', {}, h('div', { style: { fontWeight: 700 } }, title), h('div', { class: 'hint tiny' }, sub)));
+
+  async function continueConnect() {
+    const nm = nameInput.value.trim(), raw = userInput.value.trim();
+    if (!nm) { nameInput.focus(); return; }
+    if (!raw) { userInput.focus(); return; }
+    const built = state.source === 'lichess' ? 'lichess:' + raw.replace(/^lichess:/i, '') : raw;
+    err.style.display = 'none';
+    const goBtn = document.getElementById('onb-continue');
+    if (goBtn) { goBtn.disabled = true; goBtn.textContent = 'Checking…'; }
+    try {
+      const cc = await import('./chesscom.js');
+      if (!(await cc.fetchStats(built))) {
+        err.textContent = `We couldn't find “${raw}” on ${state.source === 'lichess' ? 'Lichess' : 'Chess.com'}. It's the name on your profile page — not your email.`;
+        err.style.display = 'block';
+        if (goBtn) { goBtn.disabled = false; goBtn.textContent = 'Continue →'; }
+        userInput.focus();
+        return;
+      }
+    } catch { /* network hiccup — let them proceed rather than block setup */ }
+    store.set('profile.ownerName', nm);
+    store.set('profile.username', built);
+    step = 2; render();
+  }
+
+  function finish() {
+    store.set('profile.accent', state.accent);
     store.set('profile.onboarded', true);
+    // The connect-your-accounts walkthrough IS the intro now, so suppress the old cinematic reveal.
+    store.set('profile.introSeen', true);
+    const uscf = store.get('profile.uscfId', '');
+    if (uscf && store.get('profile.username')) {
+      import('./cloud.js').then((c) => c.publishUscfId(store.get('profile.username'), uscf)).catch(() => {});
+    }
     updateOwnerBadge();
     location.hash = '#/personal';
     draw('personal');
-  } }, 'Get started →');
-  v.append(h('div', { class: 'card', style: { maxWidth: '470px', margin: '7vh auto', display: 'flex', flexDirection: 'column', gap: '14px' } },
-    h('div', { style: { fontSize: '23px', fontWeight: 800 } }, '♞ Welcome to your chess coach'),
-    h('div', { class: 'hint' }, 'Quick setup. It\'s saved right here on this device, so it\'ll remember you next time.'),
-    field('Your name', name),
-    field('Your Chess.com username', user),
-    field('Accent color', accentWrap),
-    go,
-    h('div', { class: 'hint tiny' }, 'You can change any of this later in ⚙ Settings.'),
-  ));
+  }
+
+  function render() {
+    clear(card);
+    if (step === 0) {
+      card.append(
+        h('div', { style: { fontSize: '23px', fontWeight: 800 } }, '♞ Meet your chess coach'),
+        h('div', { class: 'hint' }, 'It turns the games you already play online into a personal coach — no extra work.'),
+        h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', margin: '4px 0' } },
+          howRow(1, 'Connect your account', 'Chess.com or Lichess — just your username.'),
+          howRow(2, 'We read your real games', 'Every move analyzed by a strong engine.'),
+          howRow(3, 'You get a plan', 'Your strengths, weak spots, puzzles from your own blunders, and what to work on next.')),
+        btn('Let\'s set it up →', () => { step = 1; render(); }),
+        dots());
+    } else if (step === 1) {
+      card.append(
+        h('div', { style: { fontSize: '21px', fontWeight: 800 } }, 'Connect your chess account'),
+        h('div', { class: 'hint tiny' }, 'Where do you play? Pick one — you can add the other later in ⚙ Settings.'),
+        field('Where you play', srcWrap),
+        field('Your name', nameInput),
+        field(state.source === 'lichess' ? 'Your Lichess username' : 'Your Chess.com username', userInput, 'It\'s the name on your profile page — not your email or real name.'),
+        err,
+        h('div', { class: 'row', style: { gap: '8px', marginTop: '2px' } },
+          btn('← Back', () => { step = 0; render(); }, 'btn ghost small'),
+          h('button', { id: 'onb-continue', class: 'btn', onclick: continueConnect }, 'Continue →')),
+        dots());
+      setTimeout(() => (nameInput.value ? userInput : nameInput).focus(), 30);
+    } else if (step === 2) {
+      card.append(
+        h('div', { style: { fontSize: '21px', fontWeight: 800 } }, '🏆 Play in tournaments?'),
+        h('div', { class: 'hint' }, 'Optional. Add your US Chess ID to track your official USCF rating and tournament history right alongside your online games.'),
+        field('US Chess ID', uscfInput, '8–9 digits from your US Chess membership (find it on uschess.org). Leave blank if you don\'t have one.'),
+        err,
+        h('div', { class: 'row', style: { gap: '8px', marginTop: '2px' } },
+          btn('← Back', () => { err.style.display = 'none'; step = 1; render(); }, 'btn ghost small'),
+          btn('Skip', () => { store.set('profile.uscfId', ''); err.style.display = 'none'; step = 3; render(); }, 'btn ghost small'),
+          h('button', { class: 'btn', onclick: () => {
+            const val = uscfInput.value.trim();
+            if (val && !/^\d{8,9}$/.test(val)) { err.textContent = 'US Chess ID must be 8–9 digits (numbers only).'; err.style.display = 'block'; uscfInput.focus(); return; }
+            store.set('profile.uscfId', val); err.style.display = 'none'; step = 3; render();
+          } }, 'Continue →')),
+        dots());
+      setTimeout(() => { uscfInput.value = store.get('profile.uscfId', ''); }, 0);
+    } else {
+      card.append(
+        h('div', { style: { fontSize: '21px', fontWeight: 800 } }, '🎨 Pick your color'),
+        h('div', { class: 'hint tiny' }, 'Make it yours. You can change it anytime.'),
+        field('Accent color', accentWrap),
+        h('div', { class: 'row', style: { gap: '8px', marginTop: '2px' } },
+          btn('← Back', () => { step = 2; render(); }, 'btn ghost small'),
+          btn('Start coaching me →', finish)),
+        h('div', { class: 'hint tiny' }, 'Everything is saved on this device, so it remembers you next time. Change any of it later in ⚙ Settings.'),
+        dots());
+    }
+  }
+  render();
 }
 
 // Student self-enrollment via a coach's join link (?join=<coach>): name + username + group →
