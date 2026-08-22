@@ -469,15 +469,23 @@ function leaderboardPeek(bare) {
 // rank, your games, your badges. Everything deep (peer breakdown, by-time-control, progress
 // history, AI coach's note) lives one tap away in the "See everything" drawer.
 function renderReport(area, R) {
-  // Condensed: the essentials up top (your rating + your game plan), your games on their own tab,
-  // and the deeper sections tucked into individual dropdowns so the screen stays short.
+  // Essentials first — your rating + your game plan — then your games on their own tab.
   area.append(heroCard(R));
   area.append(focusPlanCard(R));
   area.append(gamesLinkCard());
   const uc = uscfCard(null, S.username); if (uc) area.append(uc); // real-world tournament results; self-hides when no ID
-  area.append(drop('🕸️ Your skills at a glance', (b) => renderSkills(b, R.dims, true)));
-  area.append(drop('🏆 Where you rank', (b) => { const lb = leaderboardPeek(true); if (lb) b.append(lb); else b.append(h('div', { class: 'hint tiny' }, 'No one to compare with yet — invite your club to join.')); }));
-  area.append(everythingDrawer(R)); // badges + the full breakdown + the coach live in here
+  if (R.student) {
+    // Kids: keep the motivating stuff RIGHT THERE (rank + badges), skills one tap away, and a simple
+    // "ask your coach" — none of the coach's deep-analytics tables.
+    const lb = leaderboardPeek(); if (lb) area.append(lb);          // where you rank — visible
+    renderBadges(area, badgeData(R.myGames, R.eloPoints));           // your badges — visible
+    area.append(drop('🕸️ Your skills', (b) => renderSkills(b, R.dims, true)));
+    accountCoachCard(area, R);                                       // 💬 ask your coach — visible
+  } else {
+    area.append(drop('🕸️ Your skills at a glance', (b) => renderSkills(b, R.dims, true)));
+    area.append(drop('🏆 Where you rank', (b) => { const lb = leaderboardPeek(true); if (lb) b.append(lb); else b.append(h('div', { class: 'hint tiny' }, 'No one to compare with yet — invite your club to join.')); }));
+    area.append(everythingDrawer(R)); // badges + the full breakdown + the coach live in here
+  }
 }
 
 // Games moved to their own tab — a short link card in their place.
