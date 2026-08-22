@@ -220,7 +220,7 @@ if (_join) {
   //     straight into the PREVIOUS user's account;
   //  2) starting the router first drew that user's report, and personal.js's async doImport() then
   //     repainted it right over the top of the join form.
-  showJoin(_join.trim());
+  showJoin(_join.trim(), _params.get('as') === 'coach');
 } else {
   store.onRouteChange(draw);
   if (!store.get('profile.username')) showOnboarding();
@@ -302,7 +302,7 @@ function showOnboarding() {
 
 // Student self-enrollment via a coach's join link (?join=<coach>): name + username + group →
 // added to the shared roster (coach recorded) and set up on this device as a student.
-function showJoin(coach) {
+function showJoin(coach, asCoach = false) {
   const v = document.getElementById('view');
   clear(v);
   const field = (t, el) => h('label', { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', fontWeight: 500 } }, t, el);
@@ -314,6 +314,7 @@ function showJoin(coach) {
     const b = h('button', { type: 'button', class: 'btn ghost small' + (id === group ? ' active' : ''), onclick: () => { group = id; grpWrap.querySelectorAll('button').forEach((x) => x.classList.remove('active')); b.classList.add('active'); } }, lab);
     grpWrap.append(b);
   });
+  const doneLabel = asCoach ? 'Join as coach →' : 'Join the club →';
   const err = h('div', { class: 'hint tiny', style: { color: 'var(--bad)', fontWeight: 700, display: 'none' } });
   const go = h('button', { class: 'btn', style: { marginTop: '4px', alignSelf: 'flex-start' }, onclick: async () => {
     const u = user.value.trim(), nm = name.value.trim();
@@ -328,32 +329,39 @@ function showJoin(coach) {
       if (!(await cc.fetchStats(u))) {
         err.textContent = `We couldn't find “${u}”. Check the spelling — it's your Chess.com username, not your real name.`;
         err.style.display = 'block';
-        user.focus(); go.disabled = false; go.textContent = 'Join the club →';
+        user.focus(); go.disabled = false; go.textContent = doneLabel;
         return;
       }
     } catch { /* network hiccup — let them through rather than block enrollment */ }
     go.textContent = 'Joining…';
+    // A co-coach is stored under the "Teachers" group with role=coach so (a) the club owner sees them
+    // on the roster and (b) their device gets the full coach nav (Students + Tournaments).
+    const g = asCoach ? 'teacher' : group;
+    const role = asCoach ? 'coach' : 'student';
     try {
       const c = await import('./cloud.js');
-      await c.upsertStudent({ username: u, name: nm, group_id: group, coach: coach || '', role: 'student' });
+      await c.upsertStudent({ username: u, name: nm, group_id: g, coach: coach || '', role });
     } catch (e) { /* cloud hiccup — still set them up locally; the coach's next sync catches them */ }
     store.set('profile.ownerName', nm);
     store.set('profile.username', u);
-    store.set('profile.role', 'student');
-    store.set('profile.group', group);
+    store.set('profile.role', role);
+    store.set('profile.group', g);
     if (coach) store.set('profile.coach', coach);
     store.set('profile.onboarded', true);
-    // Reload at the clean URL (drops ?join) so the student-role nav (3 tabs) applies.
+    store.set('profile.welcomeSeen', false);
+    // Reload at the clean URL (drops ?join/?as) so the role-appropriate nav applies.
     window.location.href = location.origin + location.pathname + '#/personal';
-  } }, 'Join the club →');
+  } }, doneLabel);
   const signedIn = store.get('profile.ownerName', '') || store.get('profile.username', '');
   v.append(h('div', { class: 'card', style: { maxWidth: '460px', margin: '7vh auto', display: 'flex', flexDirection: 'column', gap: '13px' } },
-    h('div', { style: { fontSize: '23px', fontWeight: 800 } }, '🏆 Join the chess club'),
-    h('div', { class: 'hint' }, 'Enter your info and your coach will see you on the roster. It\'s saved on this device so it remembers you.'),
+    h('div', { style: { fontSize: '23px', fontWeight: 800 } }, asCoach ? '👩‍🏫 Join as a coach' : '🏆 Join the chess club'),
+    h('div', { class: 'hint' }, asCoach
+      ? 'Enter your info to get the coach tools — Students and Tournaments — on this device. Your Chess.com username is used for your own games in My Chess.'
+      : 'Enter your info and your coach will see you on the roster. It\'s saved on this device so it remembers you.'),
     signedIn ? h('div', { class: 'hint tiny', style: { color: 'var(--warn)', fontWeight: 700 } }, `⚠ This device is signed in as ${signedIn} — joining will switch it to you.`) : null,
     field('Your name', name),
     field('Your Chess.com username', user),
-    field('Your group', grpWrap),
+    asCoach ? null : field('Your group', grpWrap),
     err,
     go));
 }

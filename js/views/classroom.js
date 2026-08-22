@@ -315,6 +315,11 @@ function managePanel(r) {
   return h('div', { class: 'card section' },
     h('h2', { style: { marginTop: 0 } }, 'Manage roster'),
     inviteBlock(),
+    // Adding another coach is a rarer action — tuck it in a collapsible so it doesn't crowd the
+    // day-to-day "add students" flow, but it's one tap away when you need to bring on a co-coach.
+    h('details', { class: 'drop', style: { margin: '10px 0' } },
+      h('summary', {}, '👩‍🏫 Add another coach'),
+      h('div', { style: { paddingTop: '10px' } }, inviteBlock(true))),
     addStudents(r),
     r.students.length ? localRosterList(r) : h('div', { class: 'hint tiny', style: { margin: '10px 0' } }, 'No students yet. Add them above.'),
     h('div', { class: 'row', style: { marginTop: '14px', gap: '8px', flexWrap: 'wrap' } },
@@ -326,16 +331,20 @@ function managePanel(r) {
 
 // The easy way to fill a roster: a self-enroll link + QR. Students open it, enter name + username
 // + group, and land in the shared roster (with this coach recorded). See app.js showJoin().
-function inviteBlock() {
+// asCoach=true makes the co-coach version (?as=coach) — the same flow, but the person lands with the
+// full coach nav (Students + Tournaments) and shows up under "Teachers" on the roster.
+function inviteBlock(asCoach = false) {
   const coach = store.get('profile.username', '') || '';
-  const url = location.origin + location.pathname + '?join=' + encodeURIComponent(coach);
+  const url = location.origin + location.pathname + '?join=' + encodeURIComponent(coach) + (asCoach ? '&as=coach' : '');
   const linkInput = h('input', { type: 'text', readOnly: true, value: url, style: { fontFamily: 'var(--mono)', fontSize: '12px' }, onclick: (e) => e.currentTarget.select() });
   const copyBtn = h('button', { class: 'btn small', style: { flexShrink: 0 }, onclick: (e) => copy(url, e.currentTarget, '✓ Copied') }, 'Copy link');
   const qrBox = h('div', { class: 'qr-box' }, h('span', { class: 'hint tiny', style: { color: '#555' } }, 'QR…'));
   import('../qr.js').then((m) => m.qrSvg(url, { cellSize: 5 })).then((svg) => { if (svg) clear(qrBox).append(h('div', { html: svg })); else qrBox.remove(); }).catch(() => qrBox.remove());
-  return h('div', { class: 'invite-block' },
-    h('div', { style: { fontWeight: 800, marginBottom: '3px' } }, '📲 Invite students to join'),
-    h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, 'Share this link or QR code. Students enter their name + Chess.com username (or lichess:Name) and they\'re added to your roster automatically.'),
+  return h('div', { class: 'invite-block' + (asCoach ? ' coach-invite' : '') },
+    h('div', { style: { fontWeight: 800, marginBottom: '3px' } }, asCoach ? '👩‍🏫 Invite a co-coach' : '📲 Invite students to join'),
+    h('div', { class: 'hint tiny', style: { marginBottom: '10px' } }, asCoach
+      ? 'Give this to another coach (like Will). They enter their name + Chess.com username and get the coach tools — Students + Tournaments — on their device, sharing this same roster.'
+      : 'Share this link or QR code. Students enter their name + Chess.com username (or lichess:Name) and they\'re added to your roster automatically.'),
     h('div', { class: 'row', style: { gap: '8px', flexWrap: 'nowrap' } }, linkInput, copyBtn),
     qrBox);
 }
