@@ -67,6 +67,7 @@ export function requestReviewGame(game) { pendingReview = game; }
 export function render(container, ctx) {
   CTX = ctx;
   host = container;
+  S._view = 'report';
   // An imported PGN game was sent here for full engine review — open it directly. doImport() runs
   // in the background (guarded so it won't redraw over the open board) so "← Back to games" works.
   if (pendingReview) {
@@ -94,6 +95,38 @@ export function render(container, ctx) {
   drawHome();
   if (pendingImport) { pendingImport = null; S._autoScanned = false; doImport(); }
   else if (S.username && !S.games.length) { doImport(); } // auto-load on open
+}
+
+// ---- Games tab: the full games list + review, on its own tab (replaced the Openings tab). ----
+export function renderGames(container, ctx) {
+  CTX = ctx;
+  host = container;
+  S._view = 'games';
+  S.viewing = null;
+  S.username = S.username || store.get('profile.username', '') || '';
+  if (S.games.length) drawGamesTab();
+  else if (S.username) { drawGamesLoading(); doImport(); }
+  else { clear(host); host.append(h('div', { class: 'empty section' }, 'Set your Chess.com username in ⚙ Settings to see your games.')); }
+}
+function drawGamesLoading() {
+  clear(host);
+  host.append(h('h1', {}, '🎬 Your games'), h('div', { class: 'row section' }, h('span', { class: 'spinner' }), ' Loading your games…'));
+}
+function drawGamesTab() {
+  clear(host);
+  const owner = store.get('profile.ownerName', '');
+  host.append(
+    h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px' } },
+      h('h1', {}, '🎬 Your games'),
+      S.games.length ? h('div', { class: 'hint tiny' }, `${owner ? owner + ' · ' : ''}last ${S.games.length} · `, h('a', { href: 'javascript:void 0', onclick: () => reSync() }, 'refresh')) : null),
+    h('p', { class: 'hint' }, 'Tap a game to play it back move by move — accuracy, the key moments, and exactly where it turned.'));
+  const tilt = tiltBanner(S.games.filter((g) => (g.username || '').toLowerCase() === (S.username || '').toLowerCase()));
+  if (tilt) host.append(tilt);
+  const card = h('div', { id: 'games-section', class: 'card section' });
+  host.append(card);
+  renderGamesInto(card, true); // true = show the full list (not the 3-row condensed peek)
+  // Restore where they were in the list after coming back from a review.
+  if (S._gamesScroll) { const y = S._gamesScroll; requestAnimationFrame(() => window.scrollTo(0, y)); }
 }
 
 // Coach is looking at someone else's report — make that unmistakable and give them a way out.
@@ -345,9 +378,10 @@ async function startBanking(games) {
       if (el) el.textContent = p.done
         ? `✓ Banked ${p.banked} games — saved on this device, so it loads instantly next time.`
         : `🔬 Banking deeper analysis in the background: ${p.banked}/${p.total} games (you can keep using the app).`;
-      // when finished, quietly fold the deeper data in — only if still on the home report
-      if (p.done && document.getElementById('report-area') && !document.getElementById('board')) {
-        preloadCached().then(() => { if (document.getElementById('report-area') && !document.getElementById('board')) drawReport(); });
+      // when finished, quietly fold the deeper data in — but ONLY if the user is still near the top
+      // (re-rendering while they've scrolled down yanked them back to the top mid-read).
+      if (p.done && document.getElementById('report-area') && !document.getElementById('board') && window.scrollY < 120) {
+        preloadCached().then(() => { if (document.getElementById('report-area') && !document.getElementById('board') && window.scrollY < 120) drawReport(); });
       }
     },
   });
@@ -392,13 +426,13 @@ function publishAssessment(rating, acc, dims) {
 // "Where you rank" — a poppy leaderboard peek: the podium (top 3 with medals) plus a little
 // window around YOU, with your row lit up. Shown to everyone (kids love seeing their rank), and
 // self-removes when there's nobody to compare against. The full class list lives in Students.
-function leaderboardPeek() {
+function leaderboardPeek(bare) {
   if (!cloudEnabled()) return null;
   const me = (S.username || '').toLowerCase();
   // Rank by whatever rating we actually have: the coach's manual ladder sync, else the daily
   // Chess.com cron, else their puzzle rating.
   const rateOf = (x) => x.ladder_rating ?? x.chesscom_rating ?? x.puzzle_rating ?? null;
-  const wrap = h('div', { class: 'card section', id: 'lb-peek' }, h('h2', {}, '🏆 Where you rank'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
+  const wrap = h('div', { class: bare ? '' : 'card section', id: 'lb-peek' }, bare ? null : h('h2', {}, '🏆 Where you rank'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
   const medal = ['🥇', '🥈', '🥉'];
   const rowEl = (x, i) => {
     const mine = (x.username || '').toLowerCase() === me;
@@ -423,7 +457,7 @@ function leaderboardPeek() {
     for (const i of idxs) { if (prev >= 0 && i > prev + 1) body.append(h('div', { class: 'lbp-gap' }, '···')); body.append(rowEl(ranked[i], i)); prev = i; }
     clear(wrap).append(
       h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
-        h('h2', { style: { margin: 0 } }, '🏆 Where you rank'),
+        bare ? h('span', { class: 'hint tiny' }, `${ranked.length} ranked`) : h('h2', { style: { margin: 0 } }, '🏆 Where you rank'),
         myIdx >= 0 ? h('span', { class: 'pill', style: { background: 'rgba(125,211,95,.18)', color: 'var(--good)' } }, `#${myIdx + 1} of ${ranked.length}`) : null),
       body);
   }).catch(() => { const w = document.getElementById('lb-peek'); if (w) w.remove(); });
@@ -435,18 +469,30 @@ function leaderboardPeek() {
 // rank, your games, your badges. Everything deep (peer breakdown, by-time-control, progress
 // history, AI coach's note) lives one tap away in the "See everything" drawer.
 function renderReport(area, R) {
-  area.classList.add('dash'); // opt into the wide-screen 2-column dashboard grid
-  const full = (el) => { if (el && el.classList) el.classList.add('span-2'); return el; };
-  area.append(full(heroCard(R)));
-  // US Chess tournament results, up top and prominent (self-removes when the player has no ID).
-  const uc = uscfCard(null, S.username); if (uc) area.append(full(uc));
-  area.append(focusPlanCard(R));                          // pairs with...
-  renderSkills(area, R.dims);                             // ...skills
-  const lb = leaderboardPeek(); if (lb) area.append(lb);  // pairs with...
-  area.append(gamesDetails());                            // ...your games
-  // Badges come from device-local progress (the OWNER's) — never show them on a student's report.
-  if (!S.viewing) renderBadges(area, badgeData(R.myGames, R.eloPoints));
-  area.append(full(everythingDrawer(R)));
+  // Condensed: the essentials up top (your rating + your game plan), your games on their own tab,
+  // and the deeper sections tucked into individual dropdowns so the screen stays short.
+  area.append(heroCard(R));
+  area.append(focusPlanCard(R));
+  area.append(gamesLinkCard());
+  const uc = uscfCard(null, S.username); if (uc) area.append(uc); // real-world tournament results; self-hides when no ID
+  area.append(drop('🕸️ Your skills at a glance', (b) => renderSkills(b, R.dims, true)));
+  area.append(drop('🏆 Where you rank', (b) => { const lb = leaderboardPeek(true); if (lb) b.append(lb); else b.append(h('div', { class: 'hint tiny' }, 'No one to compare with yet — invite your club to join.')); }));
+  area.append(everythingDrawer(R)); // badges + the full breakdown + the coach live in here
+}
+
+// Games moved to their own tab — a short link card in their place.
+function gamesLinkCard() {
+  return h('div', { class: 'card section', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+    h('div', { style: { minWidth: 0 } }, h('b', {}, '🎬 Review your games'), h('div', { class: 'hint tiny' }, 'Play any game back move by move — accuracy, key moments, the coach.')),
+    h('button', { class: 'btn', onclick: () => CTX.navigate('games') }, 'Open games →'));
+}
+
+// A collapsible section: the summary IS the title, body filled lazily on first open.
+function drop(title, fill) {
+  const body = h('div', { class: 'drop-body' });
+  const d = h('details', { class: 'drop section' }, h('summary', {}, title), body);
+  d.addEventListener('toggle', () => { if (d.open && !d._done) { d._done = true; fill(body); } });
+  return d;
 }
 
 // Rating "now" + how it's moving, from the chronological ELO points (oldest → newest).
@@ -560,6 +606,7 @@ function everythingDrawer(R) {
     openingsCard(body, R.I);
     if (R.eloPoints && R.eloPoints.length >= 3) renderRatingHistory(body, R.eloPoints, R.scope === 'all' ? null : R.scopeName);
     body.append(progressCard(S.username));
+    if (!R.student) renderBadges(body, badgeData(R.myGames, R.eloPoints)); // device-local; never on a student's report
   });
   return d;
 }
@@ -720,7 +767,7 @@ function gamesDetails() {
 
 // The games list: a category picker (defaults to most-played) showing the 3 most recent, with a
 // one-tap "show more". Each row carries the rating before→after, accuracy, and estimated level.
-function renderGamesInto(card) {
+function renderGamesInto(card, full) {
   clear(card);
   const u = (S.username || '').toLowerCase();
   const mine = S.games.filter((g) => (g.username || '').toLowerCase() === u);
@@ -729,13 +776,13 @@ function renderGamesInto(card) {
   if (!S.gamesTC || (S.gamesTC !== 'all' && !counts[S.gamesTC])) S.gamesTC = cats[0] || 'all';
   const cat = S.gamesTC;
   const catGames = cat === 'all' ? mine : mine.filter((g) => g.timeClass === cat);
-  const sel = h('select', { class: 'games-cat', onchange: (e) => { S.gamesTC = e.target.value; renderGamesInto(card); } },
+  const sel = h('select', { class: 'games-cat', onchange: (e) => { S.gamesTC = e.target.value; renderGamesInto(card, full); } },
     ...[...cats, 'all'].map((c) => h('option', { value: c, selected: c === cat }, c === 'all' ? `All (${mine.length})` : `${TC_LABEL[c] || c} (${counts[c]})`)));
   card.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '10px' } },
-      h('h2', { style: { margin: 0 } }, '🎬 Review your games'), sel),
-    h('div', { class: 'hint tiny', style: { margin: '2px 0 12px' } }, 'Tap a game to replay it move by move and see exactly where it turned.'),
-    gameListEl(catGames));
+      h('h2', { style: { margin: 0 } }, full ? 'Your games' : '🎬 Review your games'), sel),
+    full ? null : h('div', { class: 'hint tiny', style: { margin: '2px 0 12px' } }, 'Tap a game to replay it move by move and see exactly where it turned.'),
+    gameListEl(catGames, full));
 }
 
 function breakdownDetails(analyses, myGames) {
@@ -885,7 +932,7 @@ async function doImport() {
     // Don't redraw over an open game review (e.g. an imported-game review loading owner games in the
     // background). Guard on #review-card — it exists from the FIRST paint of openReview, whereas
     // #board only appears after the ~30s analysis, leaving a window where drawHome clobbered it.
-    if (games.length) { await preloadCached(); if (!document.getElementById('review-card')) drawHome(); }
+    if (games.length) { await preloadCached(); if (!document.getElementById('review-card')) { S._view === 'games' ? drawGamesTab() : drawHome(); } }
     else if (area) clear(area).append(h('div', { class: 'empty' }, `No games found for “${username}”.`));
   } catch (e) {
     if (area) clear(area).append(h('div', { class: 'empty' }, 'Could not load games. ', h('span', { class: 'tiny' }, e.message)));
@@ -919,11 +966,11 @@ function gameRow(g, older) {
 }
 
 // Condensed: the 3 most recent, with a "show more" that reveals the rest (capped at 25).
-function gameListEl(games) {
+function gameListEl(games, full) {
   const wrap = h('div', {});
   const list = h('div', { class: 'game-list' });
-  const all = games.slice(0, 25);
-  const SHORT = 3;
+  const all = games.slice(0, full ? 40 : 25);
+  const SHORT = full ? Math.min(12, all.length) : 3;
   const renderN = (n) => { clear(list); all.slice(0, n).forEach((g, i) => list.append(gameRow(g, all[i + 1]))); };
   renderN(SHORT);
   wrap.append(list);
@@ -940,11 +987,13 @@ function accColor(a) { return a >= 85 ? 'var(--good)' : a >= 70 ? 'var(--warn)' 
 const R = { game: null, analysis: null, ply: 0, ground: null, orientation: 'white' };
 
 async function openReview(game) {
+  if (S._view === 'games') S._gamesScroll = window.scrollY; // remember the spot in the list
+  const back = () => (S._view === 'games' ? drawGamesTab() : drawHome());
   clear(host);
   const prog = h('div', { class: 'progress' }, h('div', { class: 'bar', id: 'an-bar' }));
   host.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between' } },
-      h('button', { class: 'btn ghost small', onclick: drawHome }, '← Back to games'),
+      h('button', { class: 'btn ghost small', onclick: back }, '← Back to games'),
       h('div', { class: 'hint' }, 'vs ', game.opponent, ' · ', fmtDate(game.dateUTC))),
     h('div', { class: 'card section', id: 'review-card' },
       h('div', { class: 'row' }, h('span', { class: 'spinner' }), h('span', { id: 'an-msg' }, ' Analyzing with Stockfish…')), prog),

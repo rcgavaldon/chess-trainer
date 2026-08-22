@@ -394,6 +394,16 @@ details.more > summary:hover { color: var(--text); }
   #report-area.dash > .span-2 { grid-column: 1 / -1; }
 }
 
+/* ---- individual collapsible sections on My Chess (condensed report) ---- */
+.drop { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; }
+.drop > summary { cursor: pointer; padding: 15px 18px; font-weight: 700; font-size: 15px; list-style: none; user-select: none; display: flex; align-items: center; }
+.drop > summary::-webkit-details-marker { display: none; }
+.drop > summary::after { content: '▸'; margin-left: auto; color: var(--muted); transition: transform .15s; }
+.drop[open] > summary::after { transform: rotate(90deg); }
+.drop > summary:hover { background: var(--surface-2); }
+.drop[open] > summary { border-bottom: 1px solid var(--line); }
+.drop .drop-body { padding: 14px 18px 18px; }
+
 /* ---- poppy clickable cards (Puzzles hub + reusable across tabs) ---- */
 .big-card { transition: transform .12s, border-color .12s, box-shadow .12s; }
 .big-card:hover { transform: translateY(-3px); border-color: var(--line-strong); box-shadow: var(--shadow); }
@@ -466,6 +476,7 @@ details.more > summary:hover { color: var(--text); }
   .tabs a.active { color: var(--accent); }
   .tabs a.active::before { filter: none; transform: translateY(-1px) scale(1.05); }
   .tabs a[data-route="personal"]::before   { content: '♟️'; }
+  .tabs a[data-route="games"]::before       { content: '🎬'; }
   .tabs a[data-route="openings"]::before    { content: '📖'; }
   .tabs a[data-route="train"]::before       { content: '🧩'; }
   .tabs a[data-route="mates"]::before        { content: '♛'; }

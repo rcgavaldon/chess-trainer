@@ -4,6 +4,7 @@ import { h, clear } from './dom.js';
 import { createEngine } from './engine.js';
 import { getLang, setLang, startI18n, translateTree } from './i18n.js';
 import * as personal from './views/personal.js';
+import * as games from './views/games.js';
 import * as openings from './views/openings.js';
 import * as train from './views/train.js';
 import * as learn from './views/learn.js';
@@ -12,7 +13,7 @@ import * as leaderboard from './views/leaderboard.js';
 import * as classroom from './views/classroom.js';
 import * as tournament from './views/tournament.js';
 
-const views = { personal, openings, train, learn, mates, leaderboard, class: classroom, tournament };
+const views = { personal, games, openings, train, learn, mates, leaderboard, class: classroom, tournament };
 
 // ---- accent theme ----
 const ACCENTS = {

@@ -181,11 +181,11 @@ export function renderCleanReport(host, R) {
 
 // Compact standalone skills card — radar + strongest/weakest pills. Used on the streamlined
 // My Chess page (the deep per-dimension bars live in renderScorecard, inside the drawer).
-export function renderSkills(host, dims) {
+export function renderSkills(host, dims, bare) {
   if (!dims || !dims.length) return;
   const best = bestDim(dims), weak = worstDim(dims);
-  host.append(h('div', { class: 'card section' },
-    h('h2', {}, '🕸️ Your skills at a glance'),
+  host.append(h('div', { class: bare ? '' : 'card section' },
+    bare ? null : h('h2', {}, '🕸️ Your skills at a glance'),
     h('div', { class: 'hint tiny', style: { marginTop: '-6px', marginBottom: '2px' } }, 'Six core skills, each scored 0–100 from your own games. The further a point reaches the rim, the stronger that skill.'),
     h('div', { html: radarSvg(dims) }),
     h('div', { class: 'chip-row', style: { justifyContent: 'center', marginTop: '4px' } },
