@@ -27,11 +27,13 @@ function drawTable() {
   clear(host);
   const me = (store.get('profile.username', '') || '').toLowerCase();
   const flt = LB.filter;
-  const rows = (LB.rows || [])
-    .filter((x) => flt === 'all' || (x.group_id || 'ms') === flt)
-    .filter((x) => rateOf(x) != null)
-    .sort((a, b) => rateOf(b) - rateOf(a));
-  const myRank = rows.findIndex((x) => (x.username || '').toLowerCase() === me);
+  // Show everyone: rated ranked by rating, then not-yet-rated players at the bottom (a newly added
+  // student has no rating until the coach pulls their games — don't make them disappear).
+  const inGroup = (LB.rows || []).filter((x) => flt === 'all' || (x.group_id || 'ms') === flt);
+  const rated = inGroup.filter((x) => rateOf(x) != null).sort((a, b) => rateOf(b) - rateOf(a));
+  const unrated = inGroup.filter((x) => rateOf(x) == null).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+  const rows = [...rated, ...unrated];
+  const myRank = rated.findIndex((x) => (x.username || '').toLowerCase() === me);
   const chip = (id, label) => h('button', { class: 'chip', style: flt === id ? { background: 'var(--accent)', color: '#0a1e12', fontWeight: 700, borderColor: 'var(--accent)' } : {}, onclick: () => { LB.filter = id; drawTable(); } }, label);
   host.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
@@ -40,14 +42,15 @@ function drawTable() {
     h('div', { class: 'chip-row', style: { display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '4px 0 12px' } },
       chip('all', 'Everyone'), chip('ms', 'Middle School'), chip('hs', 'High School'), chip('teacher', 'Teachers')),
     rows.length
-      ? h('div', { class: 'card', style: { padding: '0' } }, ...rows.slice(0, 100).map((x, i) => lbRow(x, i, me)))
-      : h('div', { class: 'empty' }, 'No ranked players in this group yet.'));
+      ? h('div', { class: 'card', style: { padding: '0' } }, ...rows.slice(0, 100).map((x, i) => lbRow(x, i, me, rateOf(x) == null)))
+      : h('div', { class: 'empty' }, 'No players in this group yet.'),
+    unrated.length ? h('div', { class: 'hint tiny', style: { marginTop: '8px' } }, `⏳ ${unrated.length} not rated yet — your coach will pull their games soon.`) : null);
 }
 
-function lbRow(x, i, me) {
+function lbRow(x, i, me, unrated = false) {
   const mine = (x.username || '').toLowerCase() === me;
   return h('div', { style: { display: 'grid', gridTemplateColumns: '34px 1fr auto', gap: '10px', alignItems: 'center', padding: '12px 14px', borderTop: i ? '1px solid var(--line)' : 'none', background: mine ? 'rgba(125, 211, 95, .12)' : 'transparent' } },
-    h('b', { style: { fontFamily: 'var(--mono)', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i + 1),
+    h('b', { style: { fontFamily: 'var(--mono)', color: unrated ? 'var(--faint)' : (i < 3 ? 'var(--accent)' : 'var(--muted)') } }, unrated ? '–' : (i + 1)),
     h('div', {}, h('b', {}, nameOf(x)), mine ? h('span', { style: { color: 'var(--accent-2)', fontWeight: 700 } }, ' ← you') : null, h('div', { class: 'hint tiny' }, GROUP_LABEL[x.group_id] || '')),
     h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rateOf(x) ?? '—'), h('div', { class: 'hint tiny' }, /^lichess:/i.test(x.username || '') ? 'lichess' : 'chess.com')));
 }

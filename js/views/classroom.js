@@ -83,10 +83,13 @@ function renderLeaderboardInner(wrap) {
   const flt = CS.lbFilter;
   // Rank by Chess.com rating (kept fresh by the daily pull) — the number everyone recognizes.
   const rateOf = (x) => (x.chesscom_rating != null ? x.chesscom_rating : x.ladder_rating);
-  const rows = (CS.lbRows || [])
-    .filter((x) => flt === 'all' || (x.group_id || 'ms') === flt)
-    .filter((x) => rateOf(x) != null)
-    .sort((a, b) => rateOf(b) - rateOf(a));
+  // Show EVERYONE: rated players ranked by rating, then any not-yet-rated students at the bottom.
+  // A just-added or self-enrolled student has no rating until "Update ratings" pulls their games —
+  // they used to be filtered out entirely, so a coach who added a kid saw them vanish.
+  const inGroup = (CS.lbRows || []).filter((x) => flt === 'all' || (x.group_id || 'ms') === flt);
+  const rated = inGroup.filter((x) => rateOf(x) != null).sort((a, b) => rateOf(b) - rateOf(a));
+  const unrated = inGroup.filter((x) => rateOf(x) == null).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+  const rows = [...rated, ...unrated];
   const chip = (id, label) => h('button', {
     class: 'chip', style: flt === id ? { background: 'var(--accent)', color: '#0a1e12', fontWeight: 700, borderColor: 'var(--accent)' } : {},
     onclick: () => { CS.lbFilter = id; renderLeaderboardInner(document.getElementById('lb-wrap')); },
@@ -98,11 +101,12 @@ function renderLeaderboardInner(wrap) {
         chip('all', 'Everyone'), chip('ms', 'Middle School'), chip('hs', 'High School'), chip('teacher', 'Teachers'))),
     h('div', { class: 'hint tiny', style: { margin: '2px 0 10px' } }, 'Tap a student to see how they\'re doing and what to work on.'),
     rows.length
-      ? h('div', { class: 'card', style: { padding: '0', borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18), var(--shadow)' } }, ...rows.slice(0, 80).map((x, i) => lbRow(x, i)))
-      : h('div', { class: 'empty' }, CS.lbRows && CS.lbRows.length ? 'No ranked players in this group yet.' : 'No students yet — add them under “Manage roster,” then hit “Update ratings.”'));
+      ? h('div', { class: 'card', style: { padding: '0', borderColor: 'var(--accent)', boxShadow: '0 0 0 1px rgba(125,211,95,.18), var(--shadow)' } }, ...rows.slice(0, 80).map((x, i) => lbRow(x, i, rateOf(x) == null)))
+      : h('div', { class: 'empty' }, 'No students yet — add them under “＋ Manage roster.”'),
+    unrated.length ? h('div', { class: 'hint tiny', style: { marginTop: '8px' } }, `⏳ ${unrated.length} not rated yet (shown as “—”). Tap “↻ Update ratings” under ＋ Manage roster to pull their games.`) : null);
 }
 
-function lbRow(x, i) {
+function lbRow(x, i, unrated = false) {
   const u = (x.username || '').toLowerCase();
   const open = CS.expanded === u;
   const rating = x.chesscom_rating != null ? x.chesscom_rating : x.ladder_rating;
@@ -110,7 +114,7 @@ function lbRow(x, i) {
     class: 'lb-row', style: { display: 'grid', gridTemplateColumns: '30px 1fr 64px 18px', gap: '10px', alignItems: 'center', padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', cursor: 'pointer', background: open ? 'var(--bg-soft)' : 'transparent' },
     onclick: () => { CS.expanded = open ? null : u; renderLeaderboardInner(document.getElementById('lb-wrap')); },
   },
-    h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: i < 3 ? '18px' : '14px', textAlign: 'center', color: i < 3 ? 'var(--accent)' : 'var(--muted)' } }, i < 3 ? ['🥇', '🥈', '🥉'][i] : String(i + 1)),
+    h('div', { style: { fontFamily: 'var(--mono)', fontWeight: 800, fontSize: (!unrated && i < 3) ? '18px' : '14px', textAlign: 'center', color: unrated ? 'var(--faint)' : (i < 3 ? 'var(--accent)' : 'var(--muted)') } }, unrated ? '–' : (i < 3 ? ['🥇', '🥈', '🥉'][i] : String(i + 1))),
     h('div', {}, h('b', {}, nameOf(x)), h('span', { class: 'hint tiny', style: { marginLeft: '8px' } }, GROUP_LABEL[x.group_id] || '')),
     h('div', { style: { textAlign: 'right' } }, h('b', { style: { fontFamily: 'var(--mono)', fontSize: '16px' } }, rating ?? '—'), h('div', { class: 'hint tiny' }, /^lichess:/i.test(x.username || '') ? 'lichess' : 'chess.com')),
     h('span', { class: 'hint tiny' }, open ? '▲' : '▾'));
