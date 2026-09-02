@@ -436,12 +436,12 @@ function leaderboardPeek(bare) {
   const rateOf = (x) => x.ladder_rating ?? x.chesscom_rating ?? x.puzzle_rating ?? null;
   const wrap = h('div', { class: bare ? '' : 'card section', id: 'lb-peek' }, bare ? null : h('h2', {}, '🏆 Where you rank'), h('div', { class: 'row' }, h('span', { class: 'spinner' }), ' Loading…'));
   const medal = ['🥇', '🥈', '🥉'];
-  const rowEl = (x, i) => {
+  const rowEl = (x, i, isUn) => {
     const mine = (x.username || '').toLowerCase() === me;
     return h('div', { class: 'lbp-row' + (mine ? ' me' : '') },
-      h('div', { class: 'lbp-rank' }, i < 3 ? medal[i] : '#' + (i + 1)),
+      h('div', { class: 'lbp-rank', style: isUn ? { color: 'var(--faint)' } : {} }, isUn ? '–' : (i < 3 ? medal[i] : '#' + (i + 1))),
       h('div', { class: 'lbp-name' }, x.name || x.username || 'Player', mine ? h('span', { class: 'lbp-you' }, 'you') : null),
-      h('div', { class: 'lbp-rt' }, rateOf(x)));
+      h('div', { class: 'lbp-rt' }, isUn ? '—' : rateOf(x)));
   };
   fetchStudents().then((rows) => {
     if (!document.getElementById('lb-peek')) return;
@@ -449,19 +449,31 @@ function leaderboardPeek(bare) {
     // (the most motivating one) delete itself for everyone. chesscom_rating is kept fresh by the daily cron.
     const ranked = (rows || []).filter((x) => rateOf(x) != null).sort((a, b) => rateOf(b) - rateOf(a));
     if (ranked.length < 2) { wrap.remove(); return; } // nothing motivating to show for a lone player
+    const unranked = (rows || []).filter((x) => rateOf(x) == null).sort((a, b) => (a.name || a.username || '').localeCompare(b.name || b.username || ''));
+    const allRows = [...ranked, ...unranked]; // full class, not-yet-rated at the bottom
     const myIdx = ranked.findIndex((x) => (x.username || '').toLowerCase() === me);
     // podium (0,1,2) + a window around you (you-1, you, you+1)
     const want = [0, 1, 2];
     if (myIdx >= 0) [myIdx - 1, myIdx, myIdx + 1].forEach((i) => want.push(i));
     const idxs = [...new Set(want)].filter((i) => i >= 0 && i < ranked.length).sort((a, b) => a - b);
     const body = h('div', { class: 'lbp' });
-    let prev = -1;
-    for (const i of idxs) { if (prev >= 0 && i > prev + 1) body.append(h('div', { class: 'lbp-gap' }, '···')); body.append(rowEl(ranked[i], i)); prev = i; }
+    // Windowed by default (podium + your neighbors); tap "Show all" to expand into the whole class.
+    let expanded = false;
+    const fillBody = () => {
+      clear(body);
+      if (expanded) { allRows.forEach((x, i) => body.append(rowEl(x, i, i >= ranked.length))); return; }
+      let prev = -1;
+      for (const i of idxs) { if (prev >= 0 && i > prev + 1) body.append(h('div', { class: 'lbp-gap' }, '···')); body.append(rowEl(ranked[i], i, false)); prev = i; }
+    };
+    fillBody();
+    const canExpand = allRows.length > idxs.length;
+    const toggle = canExpand ? h('button', { class: 'btn ghost small', style: { marginTop: '10px', width: '100%' }, onclick: () => { expanded = !expanded; fillBody(); toggle.textContent = expanded ? 'Show less ▲' : `Show all ${allRows.length} ▾`; } }, `Show all ${allRows.length} ▾`) : null;
     clear(wrap).append(
       h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } },
         bare ? h('span', { class: 'hint tiny' }, `${ranked.length} ranked`) : h('h2', { style: { margin: 0 } }, '🏆 Where you rank'),
         myIdx >= 0 ? h('span', { class: 'pill', style: { background: 'rgba(125,211,95,.18)', color: 'var(--good)' } }, `#${myIdx + 1} of ${ranked.length}`) : null),
-      body);
+      body,
+      toggle);
   }).catch(() => { const w = document.getElementById('lb-peek'); if (w) w.remove(); });
   return wrap;
 }
